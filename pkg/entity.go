@@ -18,9 +18,10 @@ func (es EventStatus) String() string {
 }
 
 type Event struct {
-	ID        uuid.UUID
-	Timestamp time.Time
-	Status    EventStatus
-	Key       string
-	Message   []byte
+	ID        uuid.UUID `db:"id"`
+	Timestamp time.Time `db:"timestamp"`
+	Status    string    `db:"status"`
+	Topic     string    `db:"topic"`
+	Key       string    `db:"key"`
+	Message   []byte    `db:"message"`
 }
