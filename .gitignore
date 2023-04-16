@@ -7,5 +7,6 @@
 # Unignore all dirs
 !*/
 
-# Unignore Makefile
+# Unignore
 !Makefile
+!Dockerfile
