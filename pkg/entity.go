@@ -22,6 +22,7 @@ type Event struct {
 	Timestamp time.Time `db:"timestamp"`
 	Status    string    `db:"status"`
 	Topic     string    `db:"topic"`
+	Partition int32     `db:"partition"`
 	Key       string    `db:"key"`
 	Message   []byte    `db:"message"`
 }

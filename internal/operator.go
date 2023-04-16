@@ -12,19 +12,32 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
+const createTableSql = `
+	CREATE TABLE IF NOT EXISTS outbox (
+		id varchar(36) UNIQUE NOT NULL,
+		timestamp timestamp NOT NULL,
+		status varchar(32) NOT NULL,
+		topic varchar(128) NOT NULL,
+		partition smallint NOT NULL,
+		key varchar(36) NOT NULL,
+		message bytea NOT NULL
+	);
+`
+
 const selectLatestPendingEventSql = `
 	SELECT * FROM outbox WHERE status = $1
 	ORDER BY timestamp desc
 	LIMIT 1
 `
 
-const updateEventStatus = `
+const updateEventStatusSql = `
 	UPDATE outbox SET status = $1, timestamp = $2
 	WHERE id = $3
 `
 
 type Operator interface {
 	PublishPending(ctx context.Context) (*pkg.Event, error)
+	Close() error
 }
 
 type operator struct {
@@ -53,6 +66,7 @@ func (o *operator) PublishPending(ctx context.Context) (*pkg.Event, error) {
 		&event.Timestamp,
 		&event.Status,
 		&event.Topic,
+		&event.Partition,
 		&event.Key,
 		&event.Message,
 	)
@@ -67,7 +81,7 @@ func (o *operator) PublishPending(ctx context.Context) (*pkg.Event, error) {
 	message := &kafka.Message{
 		TopicPartition: kafka.TopicPartition{
 			Topic:     &event.Topic,
-			Partition: kafka.PartitionAny,
+			Partition: event.Partition,
 		},
 		Value: event.Message,
 	}
@@ -92,7 +106,7 @@ func (o *operator) PublishPending(ctx context.Context) (*pkg.Event, error) {
 	event.Status = pkg.SENT.String()
 	event.Timestamp = time.Now()
 
-	_, err = tx.Exec(ctx, updateEventStatus, event.Status, event.Timestamp, event.ID)
+	_, err = tx.Exec(ctx, updateEventStatusSql, event.Status, event.Timestamp, event.ID)
 	if err != nil {
 		log.Printf("Failed to update event status: %s\n", err)
 		return nil, err
@@ -107,13 +121,32 @@ func (o *operator) PublishPending(ctx context.Context) (*pkg.Event, error) {
 	return &event, nil
 }
 
+func (o *operator) Close() error {
+	o.pool.Close()
+	log.Println("Closed connection pool")
+	o.publisher.Close()
+	log.Println("Closed publisher")
+	return nil
+}
+
 func NewOperator(ctx context.Context) Operator {
 	dbUrl := pkg.GetEnv("DATABASE_URL", "postgres://localhost:5432/outbox")
 	kafkaBootstrapServers := pkg.GetEnv("BOOTSTRAP_URLS", "localhost:9092")
 
 	pool, err := pgxpool.New(ctx, dbUrl)
 	if err != nil {
-		log.Fatalf("Unable to create connection pool: %s\n", err)
+		log.Fatalf("Failed to create connection pool: %s\n", err)
+	}
+
+	conn, err := pool.Acquire(ctx)
+	if err != nil {
+		log.Fatalf("Failed to aqcuire connection from pool: %s\n", err)
+	}
+	defer conn.Release()
+
+	_, err = conn.Exec(ctx, createTableSql)
+	if err != nil {
+		log.Fatalf("Failed create table: %s\n", err)
 	}
 
 	producer, err := kafka.NewProducer(&kafka.ConfigMap{
