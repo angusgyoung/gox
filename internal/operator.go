@@ -6,7 +6,7 @@ import (
 	"time"
 
 	"github.com/angusgyoung/gox/pkg"
-	"github.com/confluentinc/confluent-kafka-go/kafka"
+	"github.com/confluentinc/confluent-kafka-go/v2/kafka"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 )
