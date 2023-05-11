@@ -13,16 +13,17 @@ const createTableSql = `
 	);
 `
 
-const selectLatestPendingEventSql = `
+const selectLatestPendingEventsSql = `
 	SELECT * FROM outbox 
 	WHERE status = $1
 	AND partition = ANY ($2)
+	AND topic = $3
 	ORDER BY timestamp desc
-	LIMIT 1
+	LIMIT $4
 `
 
 const updateEventStatusSql = `
 	UPDATE outbox 
 	SET status = $1, timestamp = $2, instance_id = $3
-	WHERE id = $4
+	WHERE id = ANY ($4)
 `
