@@ -11,6 +11,8 @@ services:
 
   postgres:
     image: postgres:latest
+    ports:
+      - "5432:5432"
     restart: unless-stopped
     volumes:
       - ./init-db.sh:/docker-entrypoint-initdb.d/init-db.sh
@@ -25,6 +27,7 @@ services:
 
   broker:
     image: confluentinc/cp-kafka:7.3.2
+    restart: unless-stopped
     ports:
       - "9092:9092"
     depends_on:
@@ -50,7 +53,7 @@ services:
 
       echo -e 'Creating kafka topics'
       kafka-topics --bootstrap-server broker:29092 --create --if-not-exists --topic test-topic-a --replication-factor 1 --partitions 10
-      kafka-topics --bootstrap-server broker:29092 --create --if-not-exists --topic test-topic-b --replication-factor 1 --partitions 10
+      kafka-topics --bootstrap-server broker:29092 --create --if-not-exists --topic test-topic-b --replication-factor 1 --partitions 20
 
       echo -e 'Successfully created the following topics:'
       kafka-topics --bootstrap-server broker:29092 --list

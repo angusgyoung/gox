@@ -8,7 +8,7 @@ Inspired by [a fantastic blog post by Alexander Morley and Richard Noble](https:
 ## Todo
 - [x] Batching
 - [x] Better configuration
-- [ ] Proper multi-topic support?
+- [x] Proper multi-topic support
 - [ ] Better logging
 - [ ] Tests
 - [ ] Docs ;)

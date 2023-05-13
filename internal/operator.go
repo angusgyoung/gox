@@ -85,109 +85,105 @@ func (o *operator) PublishPending(ctx context.Context) error {
 	topicPartitions := make(map[string][]int)
 
 	for _, topicPartition := range assignedTopicPartitions {
-		topicPartitions[*topicPartition.Topic] = append(topicPartitions[*topicPartition.Topic], int(topicPartition.Partition))
+		topicPartitions[*topicPartition.Topic] = append(topicPartitions[*topicPartition.Topic],
+			int(topicPartition.Partition))
 	}
 
-	for topic, partitions := range topicPartitions {
-		tx, err := o.conn.Begin(ctx)
-		if err != nil {
-			log.Printf("Failed to start transaction: %s\n", err)
-			return err
-		}
-		defer tx.Rollback(ctx)
+	tx, err := o.conn.Begin(ctx)
+	if err != nil {
+		log.Printf("Failed to start transaction: %s\n", err)
+		return err
+	}
+	defer tx.Rollback(ctx)
 
-		rows, err := tx.Query(
-			ctx,
-			selectLatestPendingEventsSql,
-			pkg.PENDING,
-			partitions,
-			topic,
-			o.config.BatchSize,
+	rows, err := tx.Query(
+		ctx,
+		buildFetchPendingEventsQuery(topicPartitions),
+		pkg.PENDING,
+		o.config.BatchSize,
+	)
+
+	if err != nil {
+		log.Printf("Failed to query for pending events: %s\n", err)
+		return err
+	}
+	defer rows.Close()
+
+	var eventIds []uuid.UUID
+	deliveryChan := make(chan kafka.Event, 10000)
+
+	for rows.Next() {
+		event := pkg.Event{}
+
+		err := rows.Scan(
+			&event.ID,
+			&event.Timestamp,
+			&event.Status,
+			&event.Topic,
+			&event.Partition,
+			&event.Key,
+			&event.Message,
+			&event.InstanceID,
 		)
-
 		if err != nil {
-			log.Printf("Failed to query for pending events: %s\n", err)
-			return err
-		}
-		defer rows.Close()
-
-		var eventIds []uuid.UUID
-		deliveryChan := make(chan kafka.Event, 10000)
-
-		for rows.Next() {
-			event := pkg.Event{}
-
-			err := rows.Scan(
-				&event.ID,
-				&event.Timestamp,
-				&event.Status,
-				&event.Topic,
-				&event.Partition,
-				&event.Key,
-				&event.Message,
-				&event.InstanceID,
-			)
-			if err != nil {
-				log.Printf("Failed to read row: %s\n", err)
-				return err
-			}
-
-			message := &kafka.Message{
-				TopicPartition: kafka.TopicPartition{
-					Topic:     &event.Topic,
-					Partition: event.Partition,
-				},
-				Key:   []byte(event.Key),
-				Value: event.Message,
-			}
-			err = o.publisher.Produce(message, deliveryChan)
-			if err != nil {
-				log.Printf("Failed to publish event: %s\n", err)
-				return err
-			}
-
-			e := <-deliveryChan
-			m := e.(*kafka.Message)
-
-			if m.TopicPartition.Error != nil {
-				log.Printf("Delivery of message with key '%s' to topic '%s' '[%d]' failed: %v\n",
-					m.Key, *m.TopicPartition.Topic, m.TopicPartition.Partition, m.TopicPartition.Error)
-				return err
-			} else {
-				log.Printf("Delivered message with key '%s' to topic '%s' '[%d]' at offset '%v'\n",
-					m.Key, *m.TopicPartition.Topic, m.TopicPartition.Partition, m.TopicPartition.Offset)
-			}
-
-			eventIds = append(eventIds, event.ID)
-		}
-
-		close(deliveryChan)
-
-		// We didn't find any events to publish
-		if len(eventIds) == 0 {
-			return nil
-		}
-
-		_, err = tx.Exec(ctx,
-			updateEventStatusSql,
-			pkg.SENT.String(),
-			time.Now(),
-			o.instanceId,
-			eventIds)
-		if err != nil {
-			log.Printf("Failed to update event status: %s\n", err)
+			log.Printf("Failed to read row: %s\n", err)
 			return err
 		}
 
-		err = tx.Commit(ctx)
+		message := &kafka.Message{
+			TopicPartition: kafka.TopicPartition{
+				Topic:     &event.Topic,
+				Partition: event.Partition,
+			},
+			Key:   []byte(event.Key),
+			Value: event.Message,
+		}
+		err = o.publisher.Produce(message, deliveryChan)
 		if err != nil {
-			log.Printf("Failed to commit transaction: %s\n", err)
+			log.Printf("Failed to publish event: %s\n", err)
 			return err
 		}
 
-		log.Printf("Sent %d events\n", len(eventIds))
+		e := <-deliveryChan
+		m := e.(*kafka.Message)
 
+		if m.TopicPartition.Error != nil {
+			log.Printf("Delivery of message with key '%s' to topic '%s' '[%d]' failed: %v\n",
+				m.Key, *m.TopicPartition.Topic, m.TopicPartition.Partition, m.TopicPartition.Error)
+			return err
+		} else {
+			log.Printf("Delivered message with key '%s' to topic '%s' '[%d]' at offset '%v'\n",
+				m.Key, *m.TopicPartition.Topic, m.TopicPartition.Partition, m.TopicPartition.Offset)
+		}
+
+		eventIds = append(eventIds, event.ID)
 	}
+
+	close(deliveryChan)
+
+	// We didn't find any events to publish
+	if len(eventIds) == 0 {
+		return nil
+	}
+
+	_, err = tx.Exec(ctx,
+		updateEventStatusSql,
+		pkg.SENT.String(),
+		time.Now(),
+		o.instanceId,
+		eventIds)
+	if err != nil {
+		log.Printf("Failed to update event status: %s\n", err)
+		return err
+	}
+
+	err = tx.Commit(ctx)
+	if err != nil {
+		log.Printf("Failed to commit transaction: %s\n", err)
+		return err
+	}
+
+	log.Printf("Sent %d events\n", len(eventIds))
 
 	return nil
 }
