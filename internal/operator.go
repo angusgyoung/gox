@@ -9,6 +9,7 @@ import (
 	"github.com/confluentinc/confluent-kafka-go/v2/kafka"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 )
 
 type Operator interface {
@@ -18,18 +19,47 @@ type Operator interface {
 
 type operator struct {
 	instanceId uuid.UUID
-	conn       *pgx.Conn
-	publisher  *kafka.Producer
-	consumer   *kafka.Consumer
+	conn       conn
+	producer   producer
+	consumer   consumer
 	config     *OperatorConfig
 }
 
+type conn interface {
+	Begin(ctx context.Context) (pgx.Tx, error)
+	Exec(ctx context.Context, sql string, arguments ...any) (pgconn.CommandTag, error)
+	Close(ctx context.Context) error
+}
+
+type producer interface {
+	Produce(msg *kafka.Message, deliveryChan chan kafka.Event) error
+	Close()
+}
+
+type consumer interface {
+	Poll(timeoutMs int) (event kafka.Event)
+	SubscribeTopics(topics []string, rebalanceCb kafka.RebalanceCb) (err error)
+	Assignment() (partitions []kafka.TopicPartition, err error)
+	Pause(partitions []kafka.TopicPartition) (err error)
+	Close() error
+}
+
+type scannableRow interface {
+	Scan(dest ...any) error
+}
+
 type OperatorConfig struct {
+	// Interval between consumer polls
 	PollInterval int
-	BatchSize    int
-	DatabaseUrl  string
-	BrokerUrls   string
-	Topics       []string
+	// Number of events to attempt to fetch on each
+	// interval
+	BatchSize int
+	// JDBC connection url
+	DatabaseUrl string
+	// Comma-separated set of bootstrap urls
+	BrokerUrls string
+	// List of topics to subscribe to
+	Topics []string
 }
 
 func NewOperator(ctx context.Context, config *OperatorConfig) (Operator, error) {
@@ -148,7 +178,7 @@ func (o *operator) Execute(ctx context.Context) error {
 		message := constructMessage(*event)
 
 		// Publish our message to the channel
-		err = o.publisher.Produce(message, deliveryChan)
+		err = o.producer.Produce(message, deliveryChan)
 		if err != nil {
 			log.Printf("Failed to publish event: %s\n", err)
 			return err
@@ -205,14 +235,14 @@ func (o *operator) Execute(ctx context.Context) error {
 func (o *operator) Close(ctx context.Context) {
 	log.Println("Closing connections...")
 	o.conn.Close(ctx)
-	o.publisher.Close()
+	o.producer.Close()
 	o.consumer.Close()
 }
 
-func constructEvent(rows pgx.Rows) (*pkg.Event, error) {
+func constructEvent(row scannableRow) (*pkg.Event, error) {
 	event := pkg.Event{}
 
-	err := rows.Scan(
+	err := row.Scan(
 		&event.ID,
 		&event.CreatedTimestamp,
 		&event.UpdatedTimestamp,
