@@ -12,7 +12,7 @@ import (
 )
 
 type Operator interface {
-	PublishPending(ctx context.Context) error
+	Execute(ctx context.Context) error
 	Close(ctx context.Context)
 }
 
@@ -32,26 +32,29 @@ type OperatorConfig struct {
 	Topics       []string
 }
 
-func NewOperator(ctx context.Context, config *OperatorConfig) Operator {
+func NewOperator(ctx context.Context, config *OperatorConfig) (Operator, error) {
 	instanceId := uuid.New()
 
 	conn, err := pgx.Connect(ctx, config.DatabaseUrl)
 	if err != nil {
-		log.Fatalf("Failed to acquire database connection: %s\n", err)
+		log.Printf("Failed to acquire database connection: %s\n", err)
+		return nil, err
 	}
 
 	_, err = conn.Exec(ctx, createTableSql)
 	if err != nil {
-		log.Fatalf("Failed create table: %s\n", err)
+		log.Printf("Failed create table: %s\n", err)
+		return nil, err
 	}
 
 	producer, err := kafka.NewProducer(&kafka.ConfigMap{
 		"bootstrap.servers": config.BrokerUrls,
-		"client.id":         uuid.New().String(),
+		"client.id":         instanceId,
 		"acks":              "all",
 	})
 	if err != nil {
-		log.Fatalf("Failed to create producer: %s\n", err)
+		log.Printf("Failed to create producer: %s\n", err)
+		return nil, err
 	}
 
 	consumer, err := kafka.NewConsumer(&kafka.ConfigMap{
@@ -60,10 +63,15 @@ func NewOperator(ctx context.Context, config *OperatorConfig) Operator {
 		"group.id":          "gox-partitioning-group",
 	})
 	if err != nil {
-		log.Fatalf("Failed to create consumer: %s\n", err)
+		log.Printf("Failed to create consumer: %s\n", err)
+		return nil, err
 	}
 
-	consumer.SubscribeTopics(config.Topics, nil)
+	err = consumer.SubscribeTopics(config.Topics, rebalanceCallback)
+	if err != nil {
+		log.Printf("Failed to subscribe to topics: %s\n", err)
+		return nil, err
+	}
 
 	return &operator{
 		instanceId,
@@ -71,24 +79,39 @@ func NewOperator(ctx context.Context, config *OperatorConfig) Operator {
 		producer,
 		consumer,
 		config,
-	}
+	}, nil
 }
 
-func (o *operator) PublishPending(ctx context.Context) error {
+func (o *operator) Execute(ctx context.Context) error {
+	// Poll the consumer. We should then receive any assignment
+	// updates which we should use to fetch events from the table
 	o.consumer.Poll(o.config.PollInterval)
-	assignedTopicPartitions := consumerAssignedTopicPartitions(o.consumer)
 
+	assignedTopicPartitions, err := o.consumer.Assignment()
+	if err != nil {
+		log.Fatalf("Failed to get assigned topic partitions: %s\n", err)
+	}
+
+	// Pause our consumer against the partitions it has been assigned
+	err = o.consumer.Pause(assignedTopicPartitions)
+	if err != nil {
+		log.Printf("Failed to pause consumer: %s\n", err)
+		return err
+	}
+
+	// If we haven't been assigned any partitions we can return early
 	if len(assignedTopicPartitions) == 0 {
 		return nil
 	}
 
+	// Flatten our assigned partitions into a map of topic-> partitions[]
 	topicPartitions := make(map[string][]int)
-
 	for _, topicPartition := range assignedTopicPartitions {
 		topicPartitions[*topicPartition.Topic] = append(topicPartitions[*topicPartition.Topic],
 			int(topicPartition.Partition))
 	}
 
+	// Start our transaction
 	tx, err := o.conn.Begin(ctx)
 	if err != nil {
 		log.Printf("Failed to start transaction: %s\n", err)
@@ -96,6 +119,8 @@ func (o *operator) PublishPending(ctx context.Context) error {
 	}
 	defer tx.Rollback(ctx)
 
+	// Query for events where the status is 'PENDING', and the topic
+	// and partition has been assigned by the consumer group to this instance
 	rows, err := tx.Query(
 		ctx,
 		buildFetchPendingEventsQuery(topicPartitions),
@@ -110,34 +135,19 @@ func (o *operator) PublishPending(ctx context.Context) error {
 	defer rows.Close()
 
 	var eventIds []uuid.UUID
-	deliveryChan := make(chan kafka.Event, 10000)
+	// Create a channel to produce events into
+	deliveryChan := make(chan kafka.Event, o.config.BatchSize)
 
 	for rows.Next() {
-		event := pkg.Event{}
-
-		err := rows.Scan(
-			&event.ID,
-			&event.Timestamp,
-			&event.Status,
-			&event.Topic,
-			&event.Partition,
-			&event.Key,
-			&event.Message,
-			&event.InstanceID,
-		)
+		// Create an event from the row
+		event, err := constructEvent(rows)
 		if err != nil {
-			log.Printf("Failed to read row: %s\n", err)
-			return err
+			log.Printf("Failed to construct event: %s\n", err)
 		}
+		// Create a message from the event
+		message := constructMessage(*event)
 
-		message := &kafka.Message{
-			TopicPartition: kafka.TopicPartition{
-				Topic:     &event.Topic,
-				Partition: event.Partition,
-			},
-			Key:   []byte(event.Key),
-			Value: event.Message,
-		}
+		// Publish our message to the channel
 		err = o.publisher.Produce(message, deliveryChan)
 		if err != nil {
 			log.Printf("Failed to publish event: %s\n", err)
@@ -156,6 +166,7 @@ func (o *operator) PublishPending(ctx context.Context) error {
 				m.Key, *m.TopicPartition.Topic, m.TopicPartition.Partition, m.TopicPartition.Offset)
 		}
 
+		// Add the event ID's that we have published to our slice
 		eventIds = append(eventIds, event.ID)
 	}
 
@@ -166,10 +177,12 @@ func (o *operator) PublishPending(ctx context.Context) error {
 		return nil
 	}
 
+	// Update all of the events that we have published with the
+	// status 'SENT', the current timestamp and our instance ID
 	_, err = tx.Exec(ctx,
 		updateEventStatusSql,
 		pkg.SENT.String(),
-		time.Now(),
+		time.Now().UTC(),
 		o.instanceId,
 		eventIds)
 	if err != nil {
@@ -177,13 +190,14 @@ func (o *operator) PublishPending(ctx context.Context) error {
 		return err
 	}
 
+	// Commit the transaction
 	err = tx.Commit(ctx)
 	if err != nil {
 		log.Printf("Failed to commit transaction: %s\n", err)
 		return err
 	}
 
-	log.Printf("Sent %d events\n", len(eventIds))
+	log.Printf("Published %d event(s)\n", len(eventIds))
 
 	return nil
 }
@@ -195,15 +209,51 @@ func (o *operator) Close(ctx context.Context) {
 	o.consumer.Close()
 }
 
-func consumerAssignedTopicPartitions(consumer *kafka.Consumer) []kafka.TopicPartition {
-	assignedTopicPartitions, err := consumer.Assignment()
-	if err != nil {
-		log.Fatalf("Failed to get assigned topic partitions: %s\n", err)
+func constructEvent(rows pgx.Rows) (*pkg.Event, error) {
+	event := pkg.Event{}
+
+	err := rows.Scan(
+		&event.ID,
+		&event.CreatedTimestamp,
+		&event.UpdatedTimestamp,
+		&event.Status,
+		&event.Topic,
+		&event.Partition,
+		&event.Key,
+		&event.Message,
+		&event.InstanceID,
+	)
+
+	return &event, err
+}
+
+func constructMessage(event pkg.Event) *kafka.Message {
+	message := &kafka.Message{
+		TopicPartition: kafka.TopicPartition{
+			Topic:     &event.Topic,
+			Partition: event.Partition,
+		},
+		Key:   []byte(event.Key),
+		Value: event.Message,
 	}
 
-	err = consumer.Pause(assignedTopicPartitions)
-	if err != nil {
-		log.Fatalf("Failed to pause consumer: %s\n", err)
+	return message
+}
+
+func rebalanceCallback(c *kafka.Consumer, event kafka.Event) error {
+
+	switch ev := event.(type) {
+	case kafka.AssignedPartitions:
+		log.Printf("%s rebalance: %d new partition(s) assigned\n",
+			c.GetRebalanceProtocol(), len(ev.Partitions))
+
+	case kafka.RevokedPartitions:
+		log.Printf("%s rebalance: %d partition(s) revoked\n",
+			c.GetRebalanceProtocol(), len(ev.Partitions))
+		if c.AssignmentLost() {
+			log.Printf("Current assignment lost\n")
+		}
 	}
-	return assignedTopicPartitions
+
+	return nil
 }

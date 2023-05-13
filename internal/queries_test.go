@@ -5,32 +5,64 @@ import (
 	"testing"
 )
 
-func TestBuildFetchPendingEventsQuery(t *testing.T) {
-	topicPartitions := make(map[string][]int, 2)
+type buildFetchPendingEvensQueryTest struct {
+	input map[string][]int
+	want  string
+}
 
-	topicPartitions["test-topic-a"] = []int{1, 2, 3}
-	topicPartitions["test-topic-b"] = []int{5, 6}
-
-	expected := `
+var testBuildFetchPendingEventsQueryProvider = []buildFetchPendingEvensQueryTest{
+	{
+		input: map[string][]int{
+			"test-topic-a": {1, 2, 3},
+		},
+		want: `
+		SELECT * FROM outbox 
+		WHERE status = $1
+		AND ((topic = 'test-topic-a' AND partition IN (1,2,3)))
+		ORDER BY created_timestamp ASC
+		LIMIT $2`,
+	},
+	{
+		input: map[string][]int{
+			"test-topic-a": {1, 2, 3},
+			"test-topic-b": {5, 6},
+		},
+		want: `
 		SELECT * FROM outbox 
 		WHERE status = $1
 		AND ((topic = 'test-topic-a' AND partition IN (1,2,3)) OR 
 			(topic = 'test-topic-b' AND partition IN (5,6)))
-		ORDER BY timestamp DESC
-		LIMIT $2
-	`
+		ORDER BY created_timestamp ASC
+		LIMIT $2`,
+	},
+	{
+		input: map[string][]int{
+			"test-topic-a": {1, 2, 3},
+			"test-topic-b": {5, 6},
+			"test-topic-c": {7},
+		},
+		want: `
+		SELECT * FROM outbox 
+		WHERE status = $1
+		AND ((topic = 'test-topic-a' AND partition IN (1,2,3)) OR 
+			(topic = 'test-topic-b' AND partition IN (5,6)) OR
+			(topic = 'test-topic-c' AND partition IN (7)))
+		ORDER BY created_timestamp ASC
+		LIMIT $2`,
+	},
+}
 
-	query := buildFetchPendingEventsQuery(topicPartitions)
-
-	normalisedExpected := normalize(expected)
-	normalisedQuery := normalize(query)
-
-	if normalisedQuery != normalisedExpected {
-		t.Fatalf("\nexpected: '%s'\ngot: '%s'", normalisedExpected, normalisedQuery)
+func TestBuildFetchPendingEventsQuery(t *testing.T) {
+	for _, test := range testBuildFetchPendingEventsQueryProvider {
+		normalisedWant := normalise(test.want)
+		normalisedGot := normalise(buildFetchPendingEventsQuery(test.input))
+		if normalisedWant != normalisedGot {
+			t.Fatalf("\nwanted: '%s'\ngot: '%s'", normalisedWant, normalisedGot)
+		}
 	}
 }
 
-func normalize(s string) string {
+func normalise(s string) string {
 	s = strings.Join(strings.Fields(s), " ")
 	s = strings.ReplaceAll(s, "\n", " ")
 

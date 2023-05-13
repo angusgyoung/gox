@@ -7,9 +7,10 @@ import (
 
 const createTableSql = `
 	CREATE TABLE IF NOT EXISTS outbox (
-		id varchar(36) UNIQUE NOT NULL,
-		timestamp timestamp NOT NULL,
-		status varchar(32) NOT NULL,
+		id varchar(36) UNIQUE NOT NULL DEFAULT gen_random_uuid(),
+		created_timestamp timestamp WITHOUT TIME ZONE DEFAULT (now() at time zone 'utc'),
+		updated_timestamp timestamp,
+		status varchar(32) NOT NULL DEFAULT 'PENDING',
 		topic varchar(128) NOT NULL,
 		partition smallint NOT NULL,
 		key varchar(36) NOT NULL,
@@ -20,7 +21,7 @@ const createTableSql = `
 
 const updateEventStatusSql = `
 	UPDATE outbox 
-	SET status = $1, timestamp = $2, instance_id = $3
+	SET status = $1, updated_timestamp = $2, instance_id = $3
 	WHERE id = ANY ($4)
 `
 
@@ -28,7 +29,7 @@ const selectLatestPendingEventsSql = `
 	SELECT * FROM outbox 
 	WHERE status = $1
 	AND (%s)
-	ORDER BY timestamp ASC
+	ORDER BY created_timestamp ASC
 	LIMIT $2
 `
 

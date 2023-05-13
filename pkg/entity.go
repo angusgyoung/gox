@@ -1,6 +1,7 @@
 package pkg
 
 import (
+	"database/sql"
 	"time"
 
 	"github.com/google/uuid"
@@ -18,12 +19,13 @@ func (es EventStatus) String() string {
 }
 
 type Event struct {
-	ID         uuid.UUID `db:"id"`
-	Timestamp  time.Time `db:"timestamp"`
-	Status     string    `db:"status"`
-	Topic      string    `db:"topic"`
-	Partition  int32     `db:"partition"`
-	Key        string    `db:"key"`
-	Message    []byte    `db:"message"`
-	InstanceID uuid.UUID `db:"instance_id"`
+	ID               uuid.UUID    `db:"id"`
+	CreatedTimestamp time.Time    `db:"created_timestamp"`
+	UpdatedTimestamp sql.NullTime `db:"updated_timestamp"`
+	Status           string       `db:"status"`
+	Topic            string       `db:"topic"`
+	Partition        int32        `db:"partition"`
+	Key              string       `db:"key"`
+	Message          []byte       `db:"message"`
+	InstanceID       uuid.UUID    `db:"instance_id"`
 }
