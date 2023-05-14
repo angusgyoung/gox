@@ -1,11 +1,20 @@
 package internal
 
 import (
-	"log"
 	"os"
 	"strconv"
 	"strings"
+
+	log "github.com/sirupsen/logrus"
 )
+
+func GetEnvString(key, fallback string) string {
+	if value, ok := os.LookupEnv(key); ok {
+		return value
+	}
+
+	return fallback
+}
 
 func GetReqEnvString(key string) string {
 	if value, ok := os.LookupEnv(key); ok {

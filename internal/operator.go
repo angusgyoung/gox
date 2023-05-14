@@ -2,8 +2,9 @@ package internal
 
 import (
 	"context"
-	"log"
 	"time"
+
+	log "github.com/sirupsen/logrus"
 
 	"github.com/angusgyoung/gox/pkg"
 	"github.com/confluentinc/confluent-kafka-go/v2/kafka"
@@ -67,13 +68,13 @@ func NewOperator(ctx context.Context, config *OperatorConfig) (Operator, error) 
 
 	conn, err := pgx.Connect(ctx, config.DatabaseUrl)
 	if err != nil {
-		log.Printf("Failed to acquire database connection: %s\n", err)
+		log.WithError(err).Warn("Failed to acquire database connection")
 		return nil, err
 	}
 
 	_, err = conn.Exec(ctx, createTableSql)
 	if err != nil {
-		log.Printf("Failed create table: %s\n", err)
+		log.WithError(err).Warn("Failed create table")
 		return nil, err
 	}
 
@@ -83,7 +84,7 @@ func NewOperator(ctx context.Context, config *OperatorConfig) (Operator, error) 
 		"acks":              "all",
 	})
 	if err != nil {
-		log.Printf("Failed to create producer: %s\n", err)
+		log.WithError(err).Warn("Failed to create producer")
 		return nil, err
 	}
 
@@ -93,15 +94,17 @@ func NewOperator(ctx context.Context, config *OperatorConfig) (Operator, error) 
 		"group.id":          "gox-partitioning-group",
 	})
 	if err != nil {
-		log.Printf("Failed to create consumer: %s\n", err)
+		log.WithError(err).Warn("Failed to create consumer")
 		return nil, err
 	}
 
 	err = consumer.SubscribeTopics(config.Topics, rebalanceCallback)
 	if err != nil {
-		log.Printf("Failed to subscribe to topics: %s\n", err)
+		log.WithError(err).Warn("Failed to subscribe to topics")
 		return nil, err
 	}
+
+	log.WithField("instanceId", instanceId).Debug("Operator initialised")
 
 	return &operator{
 		instanceId,
@@ -119,13 +122,14 @@ func (o *operator) Execute(ctx context.Context) error {
 
 	assignedTopicPartitions, err := o.consumer.Assignment()
 	if err != nil {
-		log.Fatalf("Failed to get assigned topic partitions: %s\n", err)
+		log.WithError(err).Warn("Failed to get assigned topic partitions")
+		return err
 	}
 
 	// Pause our consumer against the partitions it has been assigned
 	err = o.consumer.Pause(assignedTopicPartitions)
 	if err != nil {
-		log.Printf("Failed to pause consumer: %s\n", err)
+		log.WithError(err).Warn("Failed to pause consumer")
 		return err
 	}
 
@@ -144,7 +148,7 @@ func (o *operator) Execute(ctx context.Context) error {
 	// Start our transaction
 	tx, err := o.conn.Begin(ctx)
 	if err != nil {
-		log.Printf("Failed to start transaction: %s\n", err)
+		log.WithError(err).Warn("Failed to start transaction")
 		return err
 	}
 	defer tx.Rollback(ctx)
@@ -159,7 +163,7 @@ func (o *operator) Execute(ctx context.Context) error {
 	)
 
 	if err != nil {
-		log.Printf("Failed to query for pending events: %s\n", err)
+		log.WithError(err).Warn("Failed to query for pending events")
 		return err
 	}
 	defer rows.Close()
@@ -172,7 +176,7 @@ func (o *operator) Execute(ctx context.Context) error {
 		// Create an event from the row
 		event, err := constructEvent(rows)
 		if err != nil {
-			log.Printf("Failed to construct event: %s\n", err)
+			log.WithError(err).Warn("Failed to construct event")
 		}
 		// Create a message from the event
 		message := constructMessage(*event)
@@ -180,7 +184,7 @@ func (o *operator) Execute(ctx context.Context) error {
 		// Publish our message to the channel
 		err = o.producer.Produce(message, deliveryChan)
 		if err != nil {
-			log.Printf("Failed to publish event: %s\n", err)
+			log.WithError(err).Warn("Failed to publish event")
 			return err
 		}
 
@@ -188,12 +192,18 @@ func (o *operator) Execute(ctx context.Context) error {
 		m := e.(*kafka.Message)
 
 		if m.TopicPartition.Error != nil {
-			log.Printf("Delivery of message with key '%s' to topic '%s' '[%d]' failed: %v\n",
-				m.Key, *m.TopicPartition.Topic, m.TopicPartition.Partition, m.TopicPartition.Error)
+			log.WithError(m.TopicPartition.Error).WithFields(log.Fields{
+				"key":       string(m.Key),
+				"topic":     *m.TopicPartition.Topic,
+				"partition": m.TopicPartition.Partition,
+			}).Warn("Delivery failed")
 			return err
 		} else {
-			log.Printf("Delivered message with key '%s' to topic '%s' '[%d]' at offset '%v'\n",
-				m.Key, *m.TopicPartition.Topic, m.TopicPartition.Partition, m.TopicPartition.Offset)
+			log.WithFields(log.Fields{
+				"key":       string(m.Key),
+				"topic":     *m.TopicPartition.Topic,
+				"partition": m.TopicPartition.Partition,
+			}).Trace("Delivered message")
 		}
 
 		// Add the event ID's that we have published to our slice
@@ -216,24 +226,24 @@ func (o *operator) Execute(ctx context.Context) error {
 		o.instanceId,
 		eventIds)
 	if err != nil {
-		log.Printf("Failed to update event status: %s\n", err)
+		log.WithError(err).Warn("Failed to update event status")
 		return err
 	}
 
 	// Commit the transaction
 	err = tx.Commit(ctx)
 	if err != nil {
-		log.Printf("Failed to commit transaction: %s\n", err)
+		log.WithError(err).Warn("Failed to commit transaction")
 		return err
 	}
 
-	log.Printf("Published %d event(s)\n", len(eventIds))
+	log.Debugf("Published %d event(s)", len(eventIds))
 
 	return nil
 }
 
 func (o *operator) Close(ctx context.Context) {
-	log.Println("Closing connections...")
+	log.Info("Closing connections...")
 	o.conn.Close(ctx)
 	o.producer.Close()
 	o.consumer.Close()
@@ -274,14 +284,16 @@ func rebalanceCallback(c *kafka.Consumer, event kafka.Event) error {
 
 	switch ev := event.(type) {
 	case kafka.AssignedPartitions:
-		log.Printf("%s rebalance: %d new partition(s) assigned\n",
-			c.GetRebalanceProtocol(), len(ev.Partitions))
-
+		log.WithField(
+			"protocol", c.GetRebalanceProtocol()).Infof(
+			"Rebalance: %d new partition(s) assigned", len(ev.Partitions))
 	case kafka.RevokedPartitions:
-		log.Printf("%s rebalance: %d partition(s) revoked\n",
-			c.GetRebalanceProtocol(), len(ev.Partitions))
+		log.WithField(
+			"protocol", c.GetRebalanceProtocol()).Infof(
+			"Rebalance: %d partition(s) revoked", len(ev.Partitions))
+
 		if c.AssignmentLost() {
-			log.Printf("Current assignment lost\n")
+			log.Warn("Current assignment lost")
 		}
 	}
 

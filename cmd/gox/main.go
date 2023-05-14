@@ -2,18 +2,23 @@ package main
 
 import (
 	"context"
-	"log"
 	"os"
 	"os/signal"
 	"syscall"
+
+	log "github.com/sirupsen/logrus"
 
 	"github.com/angusgyoung/gox/internal"
 )
 
 func main() {
-	log.Println("Starting gox...")
-	ctx := context.Background()
+	logLevelStr := internal.GetEnvString("GOX_LOG_LEVEL", "INFO")
+	logLevel, _ := log.ParseLevel(logLevelStr)
+	log.SetLevel(logLevel)
+	log.SetFormatter(&log.JSONFormatter{})
+	log.Info("Starting gox...")
 
+	ctx := context.Background()
 	operator, err := internal.NewOperator(ctx, &internal.OperatorConfig{
 		PollInterval: internal.GetEnvInt("GOX_POLL_INTERVAL", 100),
 		BatchSize:    internal.GetEnvInt("GOX_BATCH_SIZE", 50),
@@ -22,22 +27,22 @@ func main() {
 		Topics:       internal.GetReqEnvStringList("GOX_TOPICS"),
 	})
 	if err != nil {
-		log.Fatalf("Failed to create operator: %s\n", err)
+		log.WithError(err).Fatal("Failed to create operator")
 	}
 
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGTERM, syscall.SIGINT)
 	go func() {
-		log.Println("Polling for events...")
+		log.Info("Polling for events...")
 		for {
 			err := operator.Execute(ctx)
 			if err != nil {
-				log.Fatalf("Operator error: %s\n", err)
+				log.WithError(err).Fatal("Operator failed")
 			}
 		}
 	}()
 
 	<-sigChan
-	log.Println("Stopping gox...")
+	log.Info("Stopping gox...")
 	operator.Close(ctx)
 }

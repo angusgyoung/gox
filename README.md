@@ -9,7 +9,7 @@ Inspired by [a fantastic blog post by Alexander Morley and Richard Noble](https:
 - [x] Batching
 - [x] Better configuration
 - [x] Proper multi-topic support
-- [ ] Better logging
+- [x] Better logging
 - [ ] Tests
 - [ ] Docs ;)
 - [ ] 1.0 :tada:
