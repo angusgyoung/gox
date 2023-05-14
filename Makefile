@@ -1,5 +1,5 @@
 build:
-	go build -o gox -v ./cmd/gox/main.go																								
+	go build -o gox -v main.go																								
 
 .PHONY: test
 test:

@@ -4,9 +4,9 @@ WORKDIR /build
 COPY . .
 RUN go mod download
 RUN go build -tags musl -ldflags '-extldflags "-static"' \
-    -o /build/gox ./cmd/gox/main.go
+    -o /build/gox ./main.go
 
 FROM scratch
 WORKDIR /app
 COPY --from=build /build/gox .
-CMD [ "/app/gox" ]
+ENTRYPOINT [ "/app/gox" ]
