@@ -13,7 +13,11 @@ import (
 
 func main() {
 	logLevelStr := internal.GetEnvString("GOX_LOG_LEVEL", "INFO")
-	logLevel, _ := log.ParseLevel(logLevelStr)
+	logLevel, err := log.ParseLevel(logLevelStr)
+	if err != nil {
+		log.Warnf("Failed to parse parameter '%s' to a log level, defaulting to warn", logLevelStr)
+		logLevel = log.WarnLevel
+	}
 	log.SetLevel(logLevel)
 	log.SetFormatter(&log.JSONFormatter{})
 	log.Info("Starting gox...")

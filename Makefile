@@ -3,6 +3,6 @@ build:
 
 .PHONY: test
 test:
-	go test ./...
+	go test -v ./...
 run:
 	go run cmd/gox/main.go

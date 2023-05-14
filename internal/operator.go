@@ -55,7 +55,7 @@ type OperatorConfig struct {
 	// Number of events to attempt to fetch on each
 	// interval
 	BatchSize int
-	// JDBC connection url
+	// Posgres connection url
 	DatabaseUrl string
 	// Comma-separated set of bootstrap urls
 	BrokerUrls string
@@ -104,7 +104,7 @@ func NewOperator(ctx context.Context, config *OperatorConfig) (Operator, error) 
 		return nil, err
 	}
 
-	log.WithField("instanceId", instanceId).Debug("Operator initialised")
+	log.WithField("instanceId", instanceId).Info("Operator initialised")
 
 	return &operator{
 		instanceId,
@@ -177,6 +177,7 @@ func (o *operator) Execute(ctx context.Context) error {
 		event, err := constructEvent(rows)
 		if err != nil {
 			log.WithError(err).Warn("Failed to construct event")
+			return err
 		}
 		// Create a message from the event
 		message := constructMessage(*event)
@@ -203,7 +204,7 @@ func (o *operator) Execute(ctx context.Context) error {
 				"key":       string(m.Key),
 				"topic":     *m.TopicPartition.Topic,
 				"partition": m.TopicPartition.Partition,
-			}).Trace("Delivered message")
+			}).Debug("Delivered message")
 		}
 
 		// Add the event ID's that we have published to our slice
