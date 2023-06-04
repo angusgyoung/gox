@@ -2,7 +2,8 @@ name: Build
 on:
   push:
     branches: ['main']
-
+  release:
+    types: [published,prereleased]
 env:
   REGISTRY: ghcr.io
   IMAGE_NAME: ${{ github.repository }}

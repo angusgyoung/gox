@@ -139,7 +139,7 @@ func (o *operator) Execute(ctx context.Context) error {
 	}
 
 	// Flatten our assigned partitions into a map of topic-> partitions[]
-	topicPartitions := make(map[string][]int)
+	topicPartitions := make(map[string][]int, len(assignedTopicPartitions))
 	for _, topicPartition := range assignedTopicPartitions {
 		topicPartitions[*topicPartition.Topic] = append(topicPartitions[*topicPartition.Topic],
 			int(topicPartition.Partition))

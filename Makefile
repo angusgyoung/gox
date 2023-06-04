@@ -5,4 +5,4 @@ build:
 test:
 	go test -v ./...
 run:
-	go run cmd/gox/main.go
+	go run main.go
