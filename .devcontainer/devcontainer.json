@@ -1,6 +1,9 @@
 {
 	"name": "Gox",
-	"dockerComposeFile": "docker-compose.yml",
+	"dockerComposeFile": [
+        "docker-compose.yml",
+         "${localWorkspaceFolder}/docker-compose.yml"
+    ],
     "service": "devcontainer",
     "workspaceFolder": "/workspaces/${localWorkspaceFolderBasename}",
     "shutdownAction": "stopCompose"

@@ -10,3 +10,5 @@
 # Unignore
 !Makefile
 !Dockerfile
+
+.idea
