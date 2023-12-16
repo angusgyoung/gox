@@ -2,12 +2,19 @@ package internal
 
 import (
 	"context"
+	"embed"
+	"errors"
+	"github.com/golang-migrate/migrate/v4"
+	"github.com/golang-migrate/migrate/v4/source/iofs"
+	"strings"
 	"time"
 
 	log "github.com/sirupsen/logrus"
 
 	"github.com/angusgyoung/gox/pkg"
 	"github.com/confluentinc/confluent-kafka-go/v2/kafka"
+	_ "github.com/golang-migrate/migrate/v4/database/pgx/v5"
+	_ "github.com/golang-migrate/migrate/v4/source/iofs"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -63,19 +70,52 @@ type OperatorConfig struct {
 	Topics []string
 }
 
+//go:embed migrations
+var migrations embed.FS
+
 func NewOperator(ctx context.Context, config *OperatorConfig) (Operator, error) {
 	instanceId := uuid.New()
 
 	conn, err := pgx.Connect(ctx, config.DatabaseUrl)
+
 	if err != nil {
 		log.WithError(err).Warn("Failed to acquire database connection")
 		return nil, err
 	}
 
-	_, err = conn.Exec(ctx, createTableSql)
+	// We need to replace the DSN with pgx5 to avoid
+	// having to use the postgres driver
+	migrationConnectionUrl := strings.Replace(
+		config.DatabaseUrl,
+		"postgres://",
+		"pgx5://",
+		1,
+	)
+
+	// Create an iofs driver to access our embedded
+	// migrations fs
+	migrationsDriver, err := iofs.New(migrations, "migrations")
 	if err != nil {
-		log.WithError(err).Warn("Failed create table")
+		log.WithError(err).Warn("Failed to create migrations iofs")
 		return nil, err
+	}
+
+	m, err := migrate.NewWithSourceInstance(
+		"iofs",
+		migrationsDriver,
+		migrationConnectionUrl,
+	)
+	if err != nil {
+		log.WithError(err).Warn("Failed to initialise migrations")
+		return nil, err
+	}
+
+	err = m.Up()
+	if err != nil {
+		if !errors.Is(err, migrate.ErrNoChange) {
+			log.WithError(err).Warn("Failed to execute migrations")
+			return nil, err
+		}
 	}
 
 	producer, err := kafka.NewProducer(&kafka.ConfigMap{
@@ -282,7 +322,6 @@ func constructMessage(event pkg.Event) *kafka.Message {
 }
 
 func rebalanceCallback(c *kafka.Consumer, event kafka.Event) error {
-
 	switch ev := event.(type) {
 	case kafka.AssignedPartitions:
 		log.WithField(
