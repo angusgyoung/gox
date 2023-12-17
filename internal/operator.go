@@ -244,7 +244,7 @@ func (o *operator) Execute(ctx context.Context) error {
 				"key":       string(m.Key),
 				"topic":     *m.TopicPartition.Topic,
 				"partition": m.TopicPartition.Partition,
-			}).Debug("Delivered message")
+			}).Debug("Published message")
 		}
 
 		// Add the event ID's that we have published to our slice
@@ -278,7 +278,7 @@ func (o *operator) Execute(ctx context.Context) error {
 		return err
 	}
 
-	log.Debugf("Published %d event(s)", len(eventIds))
+	log.Infof("Published %d event(s)", len(eventIds))
 
 	return nil
 }
