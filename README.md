@@ -19,6 +19,7 @@ Supports
 across instances using Kafka consumer groups
 - Multi-topic support
 - Structured logging
+- Telemetry
 
 ## Getting Started
 
@@ -60,11 +61,11 @@ Setting the log level to `debug` will log the details of each event as it is del
 
 ### Database Setup
 
-By default gox will attempt to create the following table on startup, and as such the database should be configured to allow gox to create tables:
+By default, gox will attempt to create the following tables on startup, and as such the database should be configured to allow gox to create tables:
 
 ```sql
 CREATE TABLE IF NOT EXISTS outbox (
-		id varchar(36) UNIQUE NOT NULL DEFAULT gen_random_uuid(),
+		id uuid UNIQUE NOT NULL DEFAULT gen_random_uuid(),
 		created_timestamp timestamp WITHOUT TIME ZONE DEFAULT (now() at time zone 'utc'),
 		updated_timestamp timestamp,
 		status varchar(8) NOT NULL DEFAULT 'PENDING',
@@ -72,9 +73,11 @@ CREATE TABLE IF NOT EXISTS outbox (
 		partition smallint NOT NULL,
 		key varchar(64) NOT NULL,
 		message bytea NOT NULL,
-		instance_id varchar(36)
+		instance_id uuid
 );
+
 ```
+An additional table, `schema-migrations` will also be created to track schema changes.
 
 ## Configuration
 
@@ -116,8 +119,9 @@ Sets the log format. Available options are `json` and `text`. Defaults to `text`
 ### Enable Telemetry (optional)
 `--enableTelemetry`/`GOX_ENABLE_TELEMETRY`
 
-[!WARNING] **Telemetry support is experimental**: Things may not work as expected, and configuration/capabilities
-may change.
+> [!WARNING] 
+> **Telemetry support is experimental.** Things may not work as expected, and 
+> configuration/capabilities may change.
 
 Enables metric telemetry over OTLP. See [go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetrichttp](https://pkg.go.dev/go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetrichttp) 
 for configuration options.
