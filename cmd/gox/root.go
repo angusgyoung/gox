@@ -2,12 +2,13 @@ package gox
 
 import (
 	"context"
+	"github.com/angusgyoung/gox/internal/operator"
+	"github.com/angusgyoung/gox/internal/telemetry"
 	"os"
 	"os/signal"
 	"strings"
 	"syscall"
 
-	"github.com/angusgyoung/gox/internal"
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
@@ -78,7 +79,11 @@ var (
 
 			validateConfig()
 			ctx := context.Background()
-			operator, err := internal.NewOperator(ctx, &internal.OperatorConfig{
+
+			// Initialise telemetry
+			telemetry.Initialise()
+
+			operator, err := operator.NewOperator(ctx, &operator.OperatorConfig{
 				PollInterval: viper.GetInt("pollInterval"),
 				BatchSize:    viper.GetInt("batchSize"),
 				DatabaseUrl:  viper.GetString("dbUrl"),
@@ -115,13 +120,13 @@ func Execute() error {
 func init() {
 	cobra.OnInitialize(initConfig)
 
-	rootCmd.PersistentFlags().IntVar(&pollInterval, "pollInterval", 100, "Poll interval in milliseconds. Default is 100")
-	rootCmd.PersistentFlags().IntVar(&batchSize, "batchSize", 50, "Interval batch size. Default is 50")
+	rootCmd.PersistentFlags().IntVar(&pollInterval, "pollInterval", 100, "Poll interval in milliseconds.")
+	rootCmd.PersistentFlags().IntVar(&batchSize, "batchSize", 50, "Interval batch size.")
 	rootCmd.PersistentFlags().StringVar(&dbUrl, "db", "", "Database connection url (required)")
 	rootCmd.PersistentFlags().StringVar(&brokerUrls, "brokers", "", "Comma-separated broker urls (required)")
 	rootCmd.PersistentFlags().StringSliceVar(&topics, "topics", []string{}, "Comma-separated topics (required)")
-	rootCmd.PersistentFlags().StringVar(&logLevel, "logLevel", "WARN", "Log level. Default is warn")
-	rootCmd.PersistentFlags().StringVar(&logFormat, "logFormat", "text", "Log format. Available options are 'json' and 'text'. Default is text")
+	rootCmd.PersistentFlags().StringVar(&logLevel, "logLevel", "WARN", "Log level.")
+	rootCmd.PersistentFlags().StringVar(&logFormat, "logFormat", "text", "Log format. Available options are 'json' and 'text'.")
 
 	viper.BindPFlag("pollInterval", rootCmd.PersistentFlags().Lookup("pollInterval"))
 	viper.BindPFlag("batchSize", rootCmd.PersistentFlags().Lookup("batchSize"))

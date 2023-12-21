@@ -1,20 +1,14 @@
-package internal
+package operator
 
 import (
 	"context"
-	"embed"
-	"errors"
-	"github.com/golang-migrate/migrate/v4"
-	"github.com/golang-migrate/migrate/v4/source/iofs"
-	"strings"
+	"github.com/angusgyoung/gox/internal/migrations"
 	"time"
 
 	log "github.com/sirupsen/logrus"
 
 	"github.com/angusgyoung/gox/pkg"
 	"github.com/confluentinc/confluent-kafka-go/v2/kafka"
-	_ "github.com/golang-migrate/migrate/v4/database/pgx/v5"
-	_ "github.com/golang-migrate/migrate/v4/source/iofs"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -70,9 +64,6 @@ type OperatorConfig struct {
 	Topics []string
 }
 
-//go:embed migrations
-var migrations embed.FS
-
 func NewOperator(ctx context.Context, config *OperatorConfig) (Operator, error) {
 	instanceId := uuid.New()
 
@@ -83,39 +74,10 @@ func NewOperator(ctx context.Context, config *OperatorConfig) (Operator, error) 
 		return nil, err
 	}
 
-	// We need to replace the DSN with pgx5 to avoid
-	// having to use the postgres driver
-	migrationConnectionUrl := strings.Replace(
-		config.DatabaseUrl,
-		"postgres://",
-		"pgx5://",
-		1,
-	)
-
-	// Create an iofs driver to access our embedded
-	// migrations fs
-	migrationsDriver, err := iofs.New(migrations, "migrations")
+	err = migrations.ApplyMigrations(config.DatabaseUrl)
 	if err != nil {
-		log.WithError(err).Warn("Failed to create migrations iofs")
+		log.WithError(err).Warn("Database migration failed")
 		return nil, err
-	}
-
-	m, err := migrate.NewWithSourceInstance(
-		"iofs",
-		migrationsDriver,
-		migrationConnectionUrl,
-	)
-	if err != nil {
-		log.WithError(err).Warn("Failed to initialise migrations")
-		return nil, err
-	}
-
-	err = m.Up()
-	if err != nil {
-		if !errors.Is(err, migrate.ErrNoChange) {
-			log.WithError(err).Warn("Failed to execute migrations")
-			return nil, err
-		}
 	}
 
 	producer, err := kafka.NewProducer(&kafka.ConfigMap{
