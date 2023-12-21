@@ -3,11 +3,23 @@ services:
  
   postgres:
     image: postgres:latest
+    restart: unless-stopped
+
     ports:
       - "5432:5432"
     environment:
       POSTGRES_PASSWORD: postgres
+
+
+  otel-collector:
+    image: otel/opentelemetry-collector:latest
     restart: unless-stopped
+    command: [ "--config=/etc/otel-collector-config.yml" ]
+    volumes:
+      - ./otel-collector-config.yml:/etc/otel-collector-config.yml
+    ports:
+      - "4317:4317"
+      - "4318:4318"
  
   zookeeper:
     image: confluentinc/cp-zookeeper:7.3.2
@@ -16,8 +28,8 @@ services:
       ZOOKEEPER_TICK_TIME: 2000
 
   kafka-ui:
-    container_name: kafka-ui
     image: provectuslabs/kafka-ui:latest
+    restart: unless-stopped
     ports:
       - "8080:8080"
     depends_on:
@@ -35,6 +47,7 @@ services:
 
   schema-registry:
     image: confluentinc/cp-schema-registry:7.3.2
+    restart: unless-stopped
     ports:
       - "8085:8085"
     depends_on:
@@ -50,6 +63,7 @@ services:
 
   kafka-connect:
     image: confluentinc/cp-kafka-connect:7.3.2
+    restart: unless-stopped
     ports:
       - "8083:8083"
     depends_on:

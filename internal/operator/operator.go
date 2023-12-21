@@ -3,6 +3,9 @@ package operator
 import (
 	"context"
 	"github.com/angusgyoung/gox/internal/migrations"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/metric"
 	"time"
 
 	log "github.com/sirupsen/logrus"
@@ -11,7 +14,11 @@ import (
 	"github.com/confluentinc/confluent-kafka-go/v2/kafka"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgconn"
+)
+
+var (
+	publishedMessageCounter metric.Int64Counter
+	rebalanceEventCounter   metric.Int64Counter
 )
 
 type Operator interface {
@@ -25,29 +32,6 @@ type operator struct {
 	producer   producer
 	consumer   consumer
 	config     *OperatorConfig
-}
-
-type conn interface {
-	Begin(ctx context.Context) (pgx.Tx, error)
-	Exec(ctx context.Context, sql string, arguments ...any) (pgconn.CommandTag, error)
-	Close(ctx context.Context) error
-}
-
-type producer interface {
-	Produce(msg *kafka.Message, deliveryChan chan kafka.Event) error
-	Close()
-}
-
-type consumer interface {
-	Poll(timeoutMs int) (event kafka.Event)
-	SubscribeTopics(topics []string, rebalanceCb kafka.RebalanceCb) (err error)
-	Assignment() (partitions []kafka.TopicPartition, err error)
-	Pause(partitions []kafka.TopicPartition) (err error)
-	Close() error
-}
-
-type scannableRow interface {
-	Scan(dest ...any) error
 }
 
 type OperatorConfig struct {
@@ -67,8 +51,16 @@ type OperatorConfig struct {
 func NewOperator(ctx context.Context, config *OperatorConfig) (Operator, error) {
 	instanceId := uuid.New()
 
-	conn, err := pgx.Connect(ctx, config.DatabaseUrl)
+	meter := otel.Meter("operator-meter",
+		metric.WithInstrumentationAttributes(attribute.String("instance_id", instanceId.String())))
 
+	var err error
+	publishedMessageCounter, err = meter.Int64Counter("gox_published_messages",
+		metric.WithDescription("The number of messages published by this instance."))
+	rebalanceEventCounter, err = meter.Int64Counter("gox_rebalance_events",
+		metric.WithDescription("The number of rebalance events this instance has processed."))
+
+	conn, err := pgx.Connect(ctx, config.DatabaseUrl)
 	if err != nil {
 		log.WithError(err).Warn("Failed to acquire database connection")
 		return nil, err
@@ -202,6 +194,9 @@ func (o *operator) Execute(ctx context.Context) error {
 			}).Warn("Delivery failed")
 			return err
 		} else {
+			// Increment our published message counter
+			publishedMessageCounter.Add(ctx, 1)
+
 			log.WithFields(log.Fields{
 				"key":       string(m.Key),
 				"topic":     *m.TopicPartition.Topic,
@@ -247,9 +242,9 @@ func (o *operator) Execute(ctx context.Context) error {
 
 func (o *operator) Close(ctx context.Context) {
 	log.Info("Closing connections...")
-	o.conn.Close(ctx)
 	o.producer.Close()
 	o.consumer.Close()
+	o.conn.Close(ctx)
 }
 
 func constructEvent(row scannableRow) (*pkg.Event, error) {
@@ -284,6 +279,8 @@ func constructMessage(event pkg.Event) *kafka.Message {
 }
 
 func rebalanceCallback(c *kafka.Consumer, event kafka.Event) error {
+	// Increment our rebalance event counter
+	rebalanceEventCounter.Add(context.Background(), 1)
 	switch ev := event.(type) {
 	case kafka.AssignedPartitions:
 		log.WithField(

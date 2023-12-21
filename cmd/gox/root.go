@@ -15,9 +15,9 @@ import (
 )
 
 type requiredParameter struct {
-	name               string
-	flag               string
-	environmetVariable string
+	name                string
+	flag                string
+	environmentVariable string
 }
 
 var (
@@ -28,6 +28,7 @@ var (
 	topics             []string
 	logLevel           string
 	logFormat          string
+	enableTelemetry    bool
 	requiredParameters = []requiredParameter{
 		{
 			"dbUrl",
@@ -78,10 +79,18 @@ var (
 			log.Info("Starting gox...")
 
 			validateConfig()
+
 			ctx := context.Background()
 
-			// Initialise telemetry
-			telemetry.Initialise()
+			if viper.GetBool("enableTelemetry") {
+				log.Warn("Telemetry support is experimental")
+				err = telemetry.Initialise()
+				if err != nil {
+					log.WithError(err).Fatal("Failed to initialise telemetry")
+				}
+			} else {
+				log.Debug("Telemetry is disabled")
+			}
 
 			operator, err := operator.NewOperator(ctx, &operator.OperatorConfig{
 				PollInterval: viper.GetInt("pollInterval"),
@@ -101,7 +110,7 @@ var (
 				for {
 					err := operator.Execute(ctx)
 					if err != nil {
-						log.WithError(err).Fatal("Operator failed")
+						log.WithError(err).Error("Operator failed")
 					}
 				}
 			}()
@@ -109,6 +118,7 @@ var (
 			<-sigChan
 			log.Info("Stopping gox...")
 			operator.Close(ctx)
+			telemetry.Close()
 		},
 	}
 )
@@ -122,11 +132,12 @@ func init() {
 
 	rootCmd.PersistentFlags().IntVar(&pollInterval, "pollInterval", 100, "Poll interval in milliseconds.")
 	rootCmd.PersistentFlags().IntVar(&batchSize, "batchSize", 50, "Interval batch size.")
-	rootCmd.PersistentFlags().StringVar(&dbUrl, "db", "", "Database connection url (required)")
-	rootCmd.PersistentFlags().StringVar(&brokerUrls, "brokers", "", "Comma-separated broker urls (required)")
-	rootCmd.PersistentFlags().StringSliceVar(&topics, "topics", []string{}, "Comma-separated topics (required)")
-	rootCmd.PersistentFlags().StringVar(&logLevel, "logLevel", "WARN", "Log level.")
+	rootCmd.PersistentFlags().StringVar(&dbUrl, "db", "", "Database connection url (required).")
+	rootCmd.PersistentFlags().StringVar(&brokerUrls, "brokers", "", "Comma-separated broker urls (required).")
+	rootCmd.PersistentFlags().StringSliceVar(&topics, "topics", []string{}, "Comma-separated topics (required).")
+	rootCmd.PersistentFlags().StringVar(&logLevel, "logLevel", "INFO", "Log level.")
 	rootCmd.PersistentFlags().StringVar(&logFormat, "logFormat", "text", "Log format. Available options are 'json' and 'text'.")
+	rootCmd.PersistentFlags().BoolVar(&enableTelemetry, "enableTelemetry", false, "Enable OTEL telemetry via OTLP (HTTP).")
 
 	viper.BindPFlag("pollInterval", rootCmd.PersistentFlags().Lookup("pollInterval"))
 	viper.BindPFlag("batchSize", rootCmd.PersistentFlags().Lookup("batchSize"))
@@ -135,25 +146,25 @@ func init() {
 	viper.BindPFlag("topics", rootCmd.PersistentFlags().Lookup("topics"))
 	viper.BindPFlag("logLevel", rootCmd.PersistentFlags().Lookup("logLevel"))
 	viper.BindPFlag("logFormat", rootCmd.PersistentFlags().Lookup("logFormat"))
+	viper.BindPFlag("enableTelemetry", rootCmd.PersistentFlags().Lookup("enableTelemetry"))
 }
 
 func initConfig() {
-	viper.SetEnvPrefix("gox")
-	viper.AutomaticEnv()
+	viper.BindEnv("pollInterval", "GOX_POLL_INTERVAL")
+	viper.BindEnv("batchSize", "GOX_BATCH_SIZE")
 	viper.BindEnv("dbUrl", "GOX_DB_URL")
+	viper.BindEnv("brokers", "GOX_BROKERS")
+	viper.BindEnv("topics", "GOX_TOPICS")
 	viper.BindEnv("logLevel", "GOX_LOG_LEVEL")
 	viper.BindEnv("logFormat", "GOX_LOG_FORMAT")
-
-	viper.SetDefault("logLevel", "INFO")
-	viper.SetDefault("pollInterval", 100)
-	viper.SetDefault("batchSize", 50)
+	viper.BindEnv("enableTelemetry", "GOX_ENABLE_TELEMETRY")
 }
 
 func validateConfig() {
 	for _, requiredParam := range requiredParameters {
 		if !viper.IsSet(requiredParam.name) {
 			log.Fatalf("Parameter '%s' was not provided. Populate the environment variable '%s' or start gox with the flag '--%s' set",
-				requiredParam.name, requiredParam.environmetVariable, requiredParam.flag)
+				requiredParam.name, requiredParam.environmentVariable, requiredParam.flag)
 		}
 	}
 }

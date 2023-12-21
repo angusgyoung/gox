@@ -84,7 +84,7 @@ CREATE TABLE IF NOT EXISTS outbox (
 Database connection URL. 
 
 ### Broker connection
-`--brokers`/`GOX_BROKER_URLS`
+`--brokers`/`GOX_BROKERS`
 
 Comma-separated list of brokers to connect to. 
 
@@ -112,3 +112,17 @@ Sets the log level. Defaults to `warn`.
 `--logFormat`/`GOX_LOG_FORMAT`
 
 Sets the log format. Available options are `json` and `text`. Defaults to `text`.
+
+### Enable Telemetry (optional)
+`--enableTelemetry`/`GOX_ENABLE_TELEMETRY`
+
+[!WARNING] **Telemetry support is experimental**: Things may not work as expected, and configuration/capabilities
+may change.
+
+Enables metric telemetry over OTLP. See [go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetrichttp](https://pkg.go.dev/go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetrichttp) 
+for configuration options.
+
+So far, the following metrics are available:
+ 
+- gox_published_messages
+- gox_rebalance_events
