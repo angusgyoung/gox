@@ -69,7 +69,7 @@ func TestConstructMessageWithHeader(t *testing.T) {
 	assert.Equal(t, event.CreatedTimestamp, message.Timestamp)
 
 	assert.Equal(t, event.Headers[0].Key, message.Headers[0].Key)
-	assert.Equal(t, event.Headers[0].Value, message.Headers[0].Value)
+	assert.Equal(t, []byte("headerValue1"), message.Headers[0].Value)
 	assert.Equal(t, event.Headers[1].Key, message.Headers[1].Key)
-	assert.Equal(t, event.Headers[1].Value, message.Headers[1].Value)
+	assert.Equal(t, []byte("headerValue2"), message.Headers[1].Value)
 }
