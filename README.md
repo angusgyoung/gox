@@ -73,6 +73,7 @@ CREATE TABLE IF NOT EXISTS outbox (
 		partition smallint NOT NULL,
 		key varchar(64) NOT NULL,
 		message bytea NOT NULL,
+        headers json,
 		instance_id uuid
 );
 

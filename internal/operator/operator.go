@@ -2,6 +2,7 @@ package operator
 
 import (
 	"context"
+	"errors"
 	"github.com/jackc/pgx/v5"
 	log "github.com/sirupsen/logrus"
 	"go.opentelemetry.io/otel/metric"
@@ -74,7 +75,9 @@ func (o *operator) Execute(ctx context.Context) error {
 	defer func(tx pgx.Tx, ctx context.Context) {
 		err := tx.Rollback(ctx)
 		if err != nil {
-			log.WithError(err).Warn("Failed to rollback transaction")
+			if !errors.Is(err, pgx.ErrTxClosed) {
+				log.WithError(err).Warn("Failed to rollback transaction")
+			}
 		}
 	}(tx, ctx)
 
@@ -97,11 +100,16 @@ func (o *operator) Execute(ctx context.Context) error {
 		// Create an event from the row
 		event, err := mapRowToEvent(rows)
 		if err != nil {
-			log.WithError(err).Warn("Failed to construct event")
+			log.WithError(err).Warn("Failed map row")
 			return err
 		}
+
 		// Create a message from the event
-		message := mapEventToMessage(*event)
+		message, err := mapEventToMessage(*event)
+		if err != nil {
+			log.WithError(err).Warn("Failed to map event to message")
+			return err
+		}
 
 		// Publish our message to the channel
 		err = o.producer.Produce(message, deliveryChan)
