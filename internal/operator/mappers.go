@@ -29,8 +29,9 @@ func mapEventToMessage(event pkg.Event) *kafka.Message {
 			Topic:     &event.Topic,
 			Partition: event.Partition,
 		},
-		Key:   []byte(event.Key),
-		Value: event.Message,
+		Key:       []byte(event.Key),
+		Value:     event.Message,
+		Timestamp: event.CreatedTimestamp,
 	}
 
 	return message

@@ -5,6 +5,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"testing"
+	"time"
 )
 
 type mockRow struct {
@@ -26,10 +27,11 @@ func TestConstructEvent(t *testing.T) {
 
 func TestConstructMessage(t *testing.T) {
 	event := &pkg.Event{
-		Topic:     "topic",
-		Partition: 5,
-		Key:       "key",
-		Message:   []byte("message"),
+		Topic:            "topic",
+		Partition:        5,
+		Key:              "key",
+		Message:          []byte("message"),
+		CreatedTimestamp: time.Now(),
 	}
 
 	message := mapEventToMessage(*event)
@@ -39,4 +41,5 @@ func TestConstructMessage(t *testing.T) {
 	assert.Equal(t, event.Partition, message.TopicPartition.Partition)
 	assert.Equal(t, event.Key, string(message.Key))
 	assert.Equal(t, event.Message, message.Value)
+	assert.Equal(t, event.CreatedTimestamp, message.Timestamp)
 }
