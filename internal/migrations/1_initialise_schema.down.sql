@@ -1,1 +1,1 @@
-DROP TABLE IF EXISTS outbox;
+drop table if exists outbox;
