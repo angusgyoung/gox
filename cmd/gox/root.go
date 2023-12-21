@@ -91,7 +91,7 @@ var (
 				log.Debug("Telemetry is disabled")
 			}
 
-			operator, err := operator.NewOperator(ctx, &operator.OperatorConfig{
+			operator, err := operator.NewOperator(ctx, &operator.Config{
 				PollInterval: viper.GetInt("pollInterval"),
 				BatchSize:    viper.GetInt("batchSize"),
 				DatabaseUrl:  viper.GetString("dbUrl"),

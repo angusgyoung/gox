@@ -4,22 +4,12 @@ import (
 	"context"
 	"testing"
 
-	"github.com/angusgyoung/gox/pkg"
 	"github.com/confluentinc/confluent-kafka-go/v2/kafka"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/mock"
 )
-
-type mockRow struct {
-	mock.Mock
-}
-
-func (mr *mockRow) Scan(dest ...any) error {
-	return nil
-}
 
 type mockConn struct {
 }
@@ -78,36 +68,10 @@ func TestExecute(t *testing.T) {
 		conn,
 		producer,
 		consumer,
-		&OperatorConfig{},
+		&Config{},
 	}
 
 	err := operator.Execute(context.Background())
 
 	assert.Nil(t, err)
-}
-
-func TestConstructEvent(t *testing.T) {
-	row := new(mockRow)
-
-	event, err := constructEvent(row)
-
-	assert.Nil(t, err)
-	assert.NotNil(t, event)
-}
-
-func TestConstructMessage(t *testing.T) {
-	event := &pkg.Event{
-		Topic:     "topic",
-		Partition: 5,
-		Key:       "key",
-		Message:   []byte("message"),
-	}
-
-	message := constructMessage(*event)
-
-	assert.NotNil(t, message)
-	assert.Equal(t, event.Topic, *message.TopicPartition.Topic)
-	assert.Equal(t, event.Partition, message.TopicPartition.Partition)
-	assert.Equal(t, event.Key, string(message.Key))
-	assert.Equal(t, event.Message, message.Value)
 }

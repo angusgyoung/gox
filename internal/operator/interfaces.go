@@ -7,6 +7,25 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 )
 
+type Operator interface {
+	Execute(ctx context.Context) error
+	Close(ctx context.Context)
+}
+
+type Config struct {
+	// Interval between consumer polls
+	PollInterval int
+	// Number of events to attempt to fetch on each
+	// interval
+	BatchSize int
+	// Postgres connection url
+	DatabaseUrl string
+	// Comma-separated set of bootstrap urls
+	BrokerUrls string
+	// List of topics to subscribe to
+	Topics []string
+}
+
 // TODO these are just for mocking stuff I can't construct in a unit test. I think
 //  there must be a better way of doing this...
 
