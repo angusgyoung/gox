@@ -30,7 +30,7 @@ func Initialise() error {
 }
 
 func Close() {
-	log.Debug("Shutting down meter provider...")
+	log.Info("Closing telemetry...")
 	err := meterProvider.Shutdown(context.Background())
 	if err != nil {
 		log.WithError(err).Warn("Failed to shutdown meter provider")

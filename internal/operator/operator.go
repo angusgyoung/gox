@@ -242,8 +242,8 @@ func (o *operator) Execute(ctx context.Context) error {
 
 func (o *operator) Close(ctx context.Context) {
 	log.Info("Closing connections...")
-	o.producer.Close()
 	o.consumer.Close()
+	o.producer.Close()
 	o.conn.Close(ctx)
 }
 

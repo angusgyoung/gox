@@ -4,14 +4,13 @@ import (
 	"context"
 	"github.com/angusgyoung/gox/internal/operator"
 	"github.com/angusgyoung/gox/internal/telemetry"
+	log "github.com/sirupsen/logrus"
+	"github.com/spf13/cobra"
+	"github.com/spf13/viper"
 	"os"
 	"os/signal"
 	"strings"
 	"syscall"
-
-	log "github.com/sirupsen/logrus"
-	"github.com/spf13/cobra"
-	"github.com/spf13/viper"
 )
 
 type requiredParameter struct {
@@ -103,22 +102,35 @@ var (
 				log.WithError(err).Fatal("Failed to create operator")
 			}
 
+			// Channel to receive os signals
 			sigChan := make(chan os.Signal, 1)
+			// Channel to wait for graceful shutdown
+			shutdownChan := make(chan struct{})
 			signal.Notify(sigChan, syscall.SIGTERM, syscall.SIGINT)
+
 			go func() {
+				defer close(shutdownChan)
+
 				log.Info("Polling for events...")
 				for {
-					err := operator.Execute(ctx)
-					if err != nil {
-						log.WithError(err).Error("Operator failed")
+					select {
+					default:
+						err := operator.Execute(ctx)
+						if err != nil {
+							log.WithError(err).Error("Operator failed")
+						}
+					case <-sigChan:
+						log.Info("Stopping gox..")
+						operator.Close(ctx)
+						telemetry.Close()
+						return
 					}
 				}
 			}()
 
 			<-sigChan
-			log.Info("Stopping gox...")
-			operator.Close(ctx)
-			telemetry.Close()
+			close(sigChan)
+			<-shutdownChan
 		},
 	}
 )
