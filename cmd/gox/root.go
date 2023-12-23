@@ -2,7 +2,6 @@ package gox
 
 import (
 	"context"
-	"fmt"
 	"os"
 	"os/signal"
 	"strings"
@@ -58,32 +57,13 @@ var (
 		container performing transactional publication.`,
 
 		Run: func(cmd *cobra.Command, args []string) {
-			logLevelStr := viper.GetString("logLevel")
-			logLevel, err := log.ParseLevel(logLevelStr)
-			if err != nil {
-				log.Warnf("Failed to parse parameter '%s' to a log level, defaulting to warn", logLevelStr)
-				logLevel = log.WarnLevel
-			}
+			logLevel := parseLogLevel(viper.GetString("logLevel"))
 			log.SetLevel(logLevel)
 
-			logFormat := strings.ToLower(viper.GetString("logFormat"))
-			switch logFormat {
-			case "json":
-				log.SetFormatter(&log.JSONFormatter{})
-			case "text":
-				fallthrough
-			default:
-				log.SetFormatter(&log.TextFormatter{
-					FullTimestamp: true,
-				})
-			}
+			logFormat := parseLogFormat(viper.GetString("logFormat"))
+			log.SetFormatter(logFormat)
 
-			completionModeStr := viper.GetString("completionMode")
-			completionMode, err := parseCompletionMode(completionModeStr)
-			if err != nil {
-				log.Warnf("Failed to parse parameter '%s' to a completion mode, defaulting to UPDATE", completionModeStr)
-				completionMode = operator.UpdateCompletionMode
-			}
+			completionMode := parseCompletionMode(viper.GetString("completionMode"))
 
 			log.Info("Starting gox...")
 
@@ -93,7 +73,7 @@ var (
 
 			if viper.GetBool("enableTelemetry") {
 				log.Warn("Telemetry support is experimental")
-				err = telemetry.Initialise()
+				err := telemetry.Initialise()
 				if err != nil {
 					log.WithError(err).Fatal("Failed to initialise telemetry")
 				}
@@ -195,14 +175,45 @@ func validateConfig() {
 	}
 }
 
-func parseCompletionMode(completionModeStr string) (operator.CompletionMode, error) {
+func parseLogLevel(logLevelStr string) log.Level {
+	logLevel, err := log.ParseLevel(logLevelStr)
+	if err != nil {
+		log.Warnf("Failed to parse parameter '%s' to a log level, defaulting to warn", logLevelStr)
+		logLevel = log.WarnLevel
+	}
+
+	return logLevel
+}
+
+func parseLogFormat(logFormatStr string) log.Formatter {
+	var formatter log.Formatter
+
+	switch strings.ToLower(logFormatStr) {
+	case "json":
+		formatter = &log.JSONFormatter{}
+	case "text":
+		fallthrough
+	default:
+		formatter = &log.TextFormatter{
+			FullTimestamp: true,
+		}
+	}
+
+	return formatter
+}
+
+func parseCompletionMode(completionModeStr string) operator.CompletionMode {
+	var completionMode operator.CompletionMode
+
 	switch strings.ToLower(completionModeStr) {
 	case "update":
-		return operator.UpdateCompletionMode, nil
+		completionMode = operator.UpdateCompletionMode
 	case "delete":
-		return operator.DeleteCompletionMode, nil
+		completionMode = operator.DeleteCompletionMode
 	default:
-		var cm operator.CompletionMode
-		return cm, fmt.Errorf("invalid completion mode '%q'", cm)
+		log.Warnf("Failed to parse parameter '%s' to a completion mode, defaulting to UPDATE", completionModeStr)
+		completionMode = operator.UpdateCompletionMode
 	}
+
+	return completionMode
 }
