@@ -3,19 +3,25 @@ package operator
 import (
 	"context"
 	"fmt"
+	"strings"
+	"time"
+
 	"github.com/angusgyoung/gox/pkg"
 	"github.com/confluentinc/confluent-kafka-go/v2/kafka"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	log "github.com/sirupsen/logrus"
-	"strings"
-	"time"
 )
 
 const updateEventStatusSql = `
 	UPDATE outbox 
 	SET status = $1, updated_timestamp = $2, instance_id = $3
 	WHERE id = ANY ($4)
+`
+
+const deleteEventSql = `
+	DELETE FROM outbox 
+	WHERE id = ANY ($1)
 `
 
 const selectLatestPendingEventsSql = `
@@ -63,6 +69,21 @@ func updateEventStatus(ctx context.Context,
 		eventIds)
 	if err != nil {
 		log.WithError(err).Warn("Failed to update event status")
+		return err
+	}
+
+	return nil
+}
+
+// Delete events in the supplied list
+func deleteEvents(ctx context.Context,
+	tx pgx.Tx,
+	eventIds []uuid.UUID) error {
+	_, err := tx.Exec(ctx,
+		deleteEventSql,
+		eventIds)
+	if err != nil {
+		log.WithError(err).Warn("Failed to delete events")
 		return err
 	}
 

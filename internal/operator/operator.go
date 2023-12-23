@@ -3,6 +3,7 @@ package operator
 import (
 	"context"
 	"errors"
+
 	"github.com/jackc/pgx/v5"
 	log "github.com/sirupsen/logrus"
 	"go.opentelemetry.io/otel/metric"
@@ -60,6 +61,10 @@ func NewOperator(ctx context.Context, config *Config) (Operator, error) {
 func (o *operator) Execute(ctx context.Context) error {
 	// Refresh topic assignment
 	assignedTopicPartitions, err := refreshTopicAssignment(o.consumer, o.config.PollInterval)
+	if err != nil {
+		log.WithError(err).Warn("Failed to refresh topic assignment")
+		return err
+	}
 
 	// If we haven't been assigned any partitions we can return early
 	if len(assignedTopicPartitions) == 0 {
@@ -100,7 +105,7 @@ func (o *operator) Execute(ctx context.Context) error {
 		// Create an event from the row
 		event, err := mapRowToEvent(rows)
 		if err != nil {
-			log.WithError(err).Warn("Failed map row")
+			log.WithError(err).Warn("Failed to map row")
 			return err
 		}
 
@@ -150,11 +155,22 @@ func (o *operator) Execute(ctx context.Context) error {
 		return nil
 	}
 
-	// Update the state of the events we have published
-	err = updateEventStatus(ctx, o.instanceId, tx, eventIds)
-	if err != nil {
-		log.WithError(err).Warn("Failed to update event status")
-		return err
+	// Depending on the completion mode, we need to update the status
+	// or delete the events which we have just published
+	if o.config.CompletionMode == UpdateCompletionMode {
+		// Update the state of the events we have published
+		err = updateEventStatus(ctx, o.instanceId, tx, eventIds)
+		if err != nil {
+			log.WithError(err).Warn("Failed to update event status")
+			return err
+		}
+	} else if o.config.CompletionMode == DeleteCompletionMode {
+		// Delete the events we have published
+		err = deleteEvents(ctx, tx, eventIds)
+		if err != nil {
+			log.WithError(err).Warn("Failed to delete published events")
+			return err
+		}
 	}
 
 	// Commit the transaction

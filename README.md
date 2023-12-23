@@ -148,7 +148,7 @@ Sets the maximum number of events to be published on each poll. Defaults to `50`
 
 `--logLevel`/`GOX_LOG_LEVEL`
 
-Sets the log level. Defaults to `warn`.
+Sets the log level. Defaults to `info`.
 
 ### Log Format (optional)
 
@@ -171,3 +171,15 @@ So far, the following metrics are available:
 
 - gox_published_messages
 - gox_rebalance_events
+
+### Completion Mode (optional)
+
+`--completionMode`/`GOX_COMPLETION_MODE`
+
+
+Sets the strategy for updating the table after a batch of events have been published. 
+
+- `UPDATE` will retain published events, setting `status` to `SENT` and setting `updated_timestamp` to the current time.
+- `DELETE` will delete published events from the table. 
+
+Defaults to `UPDATE`.

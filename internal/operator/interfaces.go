@@ -2,6 +2,7 @@ package operator
 
 import (
 	"context"
+
 	"github.com/confluentinc/confluent-kafka-go/v2/kafka"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -24,7 +25,16 @@ type Config struct {
 	BrokerUrls string
 	// List of topics to subscribe to
 	Topics []string
+	// Defines how gox should handle completed events.
+	CompletionMode CompletionMode
 }
+
+type CompletionMode int8
+
+const (
+	UpdateCompletionMode CompletionMode = iota
+	DeleteCompletionMode
+)
 
 // TODO these are just for mocking stuff I can't construct in a unit test. I think
 //  there must be a better way of doing this...

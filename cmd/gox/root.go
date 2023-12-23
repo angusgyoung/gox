@@ -2,15 +2,17 @@ package gox
 
 import (
 	"context"
+	"fmt"
+	"os"
+	"os/signal"
+	"strings"
+	"syscall"
+
 	"github.com/angusgyoung/gox/internal/operator"
 	"github.com/angusgyoung/gox/internal/telemetry"
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
-	"os"
-	"os/signal"
-	"strings"
-	"syscall"
 )
 
 type requiredParameter struct {
@@ -28,6 +30,7 @@ var (
 	logLevel           string
 	logFormat          string
 	enableTelemetry    bool
+	completionMode     string
 	requiredParameters = []requiredParameter{
 		{
 			"dbUrl",
@@ -75,6 +78,13 @@ var (
 				})
 			}
 
+			completionModeStr := viper.GetString("completionMode")
+			completionMode, err := parseCompletionMode(completionModeStr)
+			if err != nil {
+				log.Warnf("Failed to parse parameter '%s' to a completion mode, defaulting to UPDATE", completionModeStr)
+				completionMode = operator.UpdateCompletionMode
+			}
+
 			log.Info("Starting gox...")
 
 			validateConfig()
@@ -92,11 +102,12 @@ var (
 			}
 
 			operator, err := operator.NewOperator(ctx, &operator.Config{
-				PollInterval: viper.GetInt("pollInterval"),
-				BatchSize:    viper.GetInt("batchSize"),
-				DatabaseUrl:  viper.GetString("dbUrl"),
-				BrokerUrls:   viper.GetString("brokers"),
-				Topics:       viper.GetStringSlice("topics"),
+				PollInterval:   viper.GetInt("pollInterval"),
+				BatchSize:      viper.GetInt("batchSize"),
+				DatabaseUrl:    viper.GetString("dbUrl"),
+				BrokerUrls:     viper.GetString("brokers"),
+				Topics:         viper.GetStringSlice("topics"),
+				CompletionMode: completionMode,
 			})
 			if err != nil {
 				log.WithError(err).Fatal("Failed to create operator")
@@ -150,6 +161,7 @@ func init() {
 	rootCmd.PersistentFlags().StringVar(&logLevel, "logLevel", "INFO", "Log level.")
 	rootCmd.PersistentFlags().StringVar(&logFormat, "logFormat", "text", "Log format. Available options are 'json' and 'text'.")
 	rootCmd.PersistentFlags().BoolVar(&enableTelemetry, "enableTelemetry", false, "Enable OTEL telemetry via OTLP (HTTP).")
+	rootCmd.PersistentFlags().StringVar(&completionMode, "completionMode", "UPDATE", "Batch completion mode. Available options are 'UPDATE' and 'DELETE'")
 
 	viper.BindPFlag("pollInterval", rootCmd.PersistentFlags().Lookup("pollInterval"))
 	viper.BindPFlag("batchSize", rootCmd.PersistentFlags().Lookup("batchSize"))
@@ -159,6 +171,7 @@ func init() {
 	viper.BindPFlag("logLevel", rootCmd.PersistentFlags().Lookup("logLevel"))
 	viper.BindPFlag("logFormat", rootCmd.PersistentFlags().Lookup("logFormat"))
 	viper.BindPFlag("enableTelemetry", rootCmd.PersistentFlags().Lookup("enableTelemetry"))
+	viper.BindPFlag("completionMode", rootCmd.PersistentFlags().Lookup("completionMode"))
 }
 
 func initConfig() {
@@ -170,6 +183,7 @@ func initConfig() {
 	viper.BindEnv("logLevel", "GOX_LOG_LEVEL")
 	viper.BindEnv("logFormat", "GOX_LOG_FORMAT")
 	viper.BindEnv("enableTelemetry", "GOX_ENABLE_TELEMETRY")
+	viper.BindEnv("completionMode", "GOX_COMPLETION_MODE")
 }
 
 func validateConfig() {
@@ -178,5 +192,17 @@ func validateConfig() {
 			log.Fatalf("Parameter '%s' was not provided. Populate the environment variable '%s' or start gox with the flag '--%s' set",
 				requiredParam.name, requiredParam.environmentVariable, requiredParam.flag)
 		}
+	}
+}
+
+func parseCompletionMode(completionModeStr string) (operator.CompletionMode, error) {
+	switch strings.ToLower(completionModeStr) {
+	case "update":
+		return operator.UpdateCompletionMode, nil
+	case "delete":
+		return operator.DeleteCompletionMode, nil
+	default:
+		var cm operator.CompletionMode
+		return cm, fmt.Errorf("invalid completion mode '%q'", cm)
 	}
 }
