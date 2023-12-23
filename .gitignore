@@ -12,3 +12,6 @@
 !Dockerfile
 
 .idea
+.vscode
+
+*.txt
