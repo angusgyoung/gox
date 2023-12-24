@@ -1,0 +1,1 @@
+drop index if exists status_topic_partition_idx;
