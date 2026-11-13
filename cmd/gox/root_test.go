@@ -85,12 +85,12 @@ func TestParseCompletionMode(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		t.Run(fmt.Sprintf("%s should result in %q", tt.input, tt.want), func(t *testing.T) {
+		t.Run(fmt.Sprintf("%v should result in %v", tt.input, tt.want), func(t *testing.T) {
 
 			ans := parseCompletionMode(tt.input)
 
 			if ans != tt.want {
-				t.Errorf("got %q, want %q", ans, tt.want)
+				t.Errorf("got %v, want %v", ans, tt.want)
 			}
 		})
 	}
