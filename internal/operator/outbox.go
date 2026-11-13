@@ -9,7 +9,6 @@ import (
 	"github.com/angusgyoung/gox/pkg"
 	"github.com/confluentinc/confluent-kafka-go/v2/kafka"
 	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -35,9 +34,9 @@ const selectLatestPendingEventsSql = `
 // Fetch any events that are in a PENDING state,
 // and are destined for one of the topics we have been assigned
 func fetchPendingEvents(ctx context.Context,
-	tx pgx.Tx,
+	tx transaction,
 	assignedTopicPartitions []kafka.TopicPartition,
-	batchSize int) (pgx.Rows, error) {
+	batchSize int) (rows, error) {
 
 	// Flatten our assigned partitions into a map of topic-> partitions[]
 	topicPartitions := make(map[string][]int, len(assignedTopicPartitions))
@@ -59,7 +58,7 @@ func fetchPendingEvents(ctx context.Context,
 // current time, and the instance id to our id.
 func updateEventStatus(ctx context.Context,
 	instanceId uuid.UUID,
-	tx pgx.Tx,
+	tx transaction,
 	eventIds []uuid.UUID) error {
 	_, err := tx.Exec(ctx,
 		updateEventStatusSql,
@@ -77,7 +76,7 @@ func updateEventStatus(ctx context.Context,
 
 // Delete events in the supplied list
 func deleteEvents(ctx context.Context,
-	tx pgx.Tx,
+	tx transaction,
 	eventIds []uuid.UUID) error {
 	_, err := tx.Exec(ctx,
 		deleteEventSql,

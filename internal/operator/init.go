@@ -26,7 +26,7 @@ func initialiseMeters(instanceId uuid.UUID) error {
 }
 
 func initialiseDatasource(ctx context.Context, databaseUrl string) (conn, error) {
-	conn, err := pgx.Connect(ctx, databaseUrl)
+	c, err := pgx.Connect(ctx, databaseUrl)
 	if err != nil {
 		log.WithError(err).Warn("Failed to acquire database connection")
 		return nil, err
@@ -38,7 +38,7 @@ func initialiseDatasource(ctx context.Context, databaseUrl string) (conn, error)
 		return nil, err
 	}
 
-	return conn, nil
+	return c, nil
 }
 
 func initialiseKafka(instanceId uuid.UUID, brokerUrls string, topics []string) (producer, consumer, error) {

@@ -1,28 +1,77 @@
 package operator
 
 import (
-	"github.com/angusgyoung/gox/pkg"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/mock"
+	"errors"
 	"testing"
 	"time"
+
+	"github.com/angusgyoung/gox/pkg"
+	"github.com/google/uuid"
+	"github.com/stretchr/testify/assert"
 )
 
-type mockRow struct {
-	mock.Mock
+// populatingRow populates the fields that mapRowToEvent scans into, using
+// type assertions so unrecognised positions are silently skipped.
+type populatingRow struct {
+	id        uuid.UUID
+	topic     string
+	partition int32
+	key       string
+	message   []byte
 }
 
-func (mr *mockRow) Scan(dest ...any) error {
+func (r *populatingRow) Scan(dest ...any) error {
+	// scan order mirrors mapRowToEvent:
+	// 0:ID 1:CreatedTimestamp 2:UpdatedTimestamp 3:Status 4:Topic
+	// 5:Partition 6:Key 7:Message 8:InstanceID 9:Headers
+	if p, ok := dest[0].(*uuid.UUID); ok {
+		*p = r.id
+	}
+	if p, ok := dest[4].(*string); ok {
+		*p = r.topic
+	}
+	if p, ok := dest[5].(*int32); ok {
+		*p = r.partition
+	}
+	if p, ok := dest[6].(*string); ok {
+		*p = r.key
+	}
+	if p, ok := dest[7].(*[]byte); ok {
+		*p = r.message
+	}
 	return nil
 }
 
-func TestConstructEvent(t *testing.T) {
-	row := new(mockRow)
+type errorRow struct{ err error }
+
+func (r *errorRow) Scan(...any) error { return r.err }
+
+func TestConstructEvent_Fields(t *testing.T) {
+	id := uuid.New()
+	row := &populatingRow{
+		id:        id,
+		topic:     "test-topic",
+		partition: 3,
+		key:       "test-key",
+		message:   []byte("test-message"),
+	}
 
 	event, err := mapRowToEvent(row)
 
 	assert.Nil(t, err)
-	assert.NotNil(t, event)
+	assert.Equal(t, id, event.ID)
+	assert.Equal(t, "test-topic", event.Topic)
+	assert.Equal(t, int32(3), event.Partition)
+	assert.Equal(t, "test-key", event.Key)
+	assert.Equal(t, []byte("test-message"), event.Message)
+}
+
+func TestConstructEvent_ScanError(t *testing.T) {
+	scanErr := errors.New("scan error")
+
+	_, err := mapRowToEvent(&errorRow{err: scanErr})
+
+	assert.Equal(t, scanErr, err)
 }
 
 func TestConstructMessage(t *testing.T) {

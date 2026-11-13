@@ -4,12 +4,12 @@ import (
 	"context"
 	"errors"
 
+	"github.com/angusgyoung/gox/pkg"
+	"github.com/confluentinc/confluent-kafka-go/v2/kafka"
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	log "github.com/sirupsen/logrus"
 	"go.opentelemetry.io/otel/metric"
-
-	"github.com/confluentinc/confluent-kafka-go/v2/kafka"
-	"github.com/google/uuid"
 )
 
 var (
@@ -77,14 +77,12 @@ func (o *Operator) Execute(ctx context.Context) error {
 		log.WithError(err).Warn("Failed to start transaction")
 		return err
 	}
-	defer func(tx pgx.Tx, ctx context.Context) {
-		err := tx.Rollback(ctx)
-		if err != nil {
-			if !errors.Is(err, pgx.ErrTxClosed) {
-				log.WithError(err).Warn("Failed to rollback transaction")
-			}
+	defer func() {
+		rollbackErr := tx.Rollback(ctx)
+		if rollbackErr != nil && !errors.Is(rollbackErr, pgx.ErrTxClosed) {
+			log.WithError(rollbackErr).Warn("Failed to rollback transaction")
 		}
-	}(tx, ctx)
+	}()
 
 	// Query for events where the status is 'PENDING', and the topic
 	// and partition has been assigned by the consumer group to this instance
@@ -101,16 +99,20 @@ func (o *Operator) Execute(ctx context.Context) error {
 	// Create a channel to produce events into
 	deliveryChan := make(chan kafka.Event, o.config.BatchSize)
 
+	var (
+		event   *pkg.Event
+		message *kafka.Message
+	)
 	for rows.Next() {
 		// Create an event from the row
-		event, err := mapRowToEvent(rows)
+		event, err = mapRowToEvent(rows)
 		if err != nil {
 			log.WithError(err).Warn("Failed to map row")
 			return err
 		}
 
 		// Create a message from the event
-		message, err := mapEventToMessage(*event)
+		message, err = mapEventToMessage(*event)
 		if err != nil {
 			log.WithError(err).Warn("Failed to map event to message")
 			return err
@@ -132,7 +134,7 @@ func (o *Operator) Execute(ctx context.Context) error {
 				"topic":     *m.TopicPartition.Topic,
 				"partition": m.TopicPartition.Partition,
 			}).Warn("Delivery failed")
-			return err
+			return m.TopicPartition.Error
 		} else {
 			// Increment our published message counter
 			publishedMessageCounter.Add(ctx, 1)

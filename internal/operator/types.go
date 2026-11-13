@@ -31,12 +31,21 @@ const (
 	DeleteCompletionMode
 )
 
-// TODO these are just for mocking stuff I can't construct in a unit test. I think
-//  there must be a better way of doing this...
+type rows interface {
+	Next() bool
+	Scan(dest ...any) error
+	Close()
+}
+
+type transaction interface {
+	Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error)
+	Exec(ctx context.Context, sql string, args ...any) (pgconn.CommandTag, error)
+	Commit(ctx context.Context) error
+	Rollback(ctx context.Context) error
+}
 
 type conn interface {
 	Begin(ctx context.Context) (pgx.Tx, error)
-	Exec(ctx context.Context, sql string, arguments ...any) (pgconn.CommandTag, error)
 	Close(ctx context.Context) error
 }
 

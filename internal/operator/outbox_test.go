@@ -3,6 +3,8 @@ package operator
 import (
 	"strings"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
 )
 
 func TestBuildFetchPendingEventsQuery(t *testing.T) {
@@ -50,6 +52,21 @@ func TestBuildFetchPendingEventsQuery(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestBuildFetchPendingEventsQuery_MultipleTopics tests with multiple topics separately
+// because map iteration order is non-deterministic, so we check for the presence of
+// each condition rather than an exact string match.
+func TestBuildFetchPendingEventsQuery_MultipleTopics(t *testing.T) {
+	result := buildFetchPendingEventsQuery(map[string][]int{
+		"topic-a": {1},
+		"topic-b": {2, 3},
+	})
+
+	normalized := normalize(result)
+	assert.Contains(t, normalized, normalize("(topic = 'topic-a' AND partition IN (1))"))
+	assert.Contains(t, normalized, normalize("(topic = 'topic-b' AND partition IN (2,3))"))
+	assert.Contains(t, normalized, "or")
 }
 
 func normalize(s string) string {
