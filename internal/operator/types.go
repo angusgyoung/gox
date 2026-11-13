@@ -8,11 +8,6 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 )
 
-type Operator interface {
-	Execute(ctx context.Context) error
-	Close(ctx context.Context)
-}
-
 type Config struct {
 	// Interval between consumer polls
 	PollInterval int

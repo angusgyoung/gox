@@ -63,7 +63,7 @@ func TestExecute(t *testing.T) {
 	producer := new(mockProducer)
 	consumer := new(mockConsumer)
 
-	operator := &operator{
+	operator := &Operator{
 		uuid.New(),
 		conn,
 		producer,

@@ -17,7 +17,7 @@ var (
 	rebalanceEventCounter   metric.Int64Counter
 )
 
-type operator struct {
+type Operator struct {
 	instanceId uuid.UUID
 	conn       conn
 	producer   producer
@@ -25,7 +25,7 @@ type operator struct {
 	config     *Config
 }
 
-func NewOperator(ctx context.Context, config *Config) (Operator, error) {
+func NewOperator(ctx context.Context, config *Config) (*Operator, error) {
 	// Create an id for our instance
 	instanceId := uuid.New()
 
@@ -49,7 +49,7 @@ func NewOperator(ctx context.Context, config *Config) (Operator, error) {
 
 	log.WithField("instanceId", instanceId).Info("Operator initialised")
 
-	return &operator{
+	return &Operator{
 		instanceId,
 		conn,
 		producer,
@@ -58,7 +58,7 @@ func NewOperator(ctx context.Context, config *Config) (Operator, error) {
 	}, nil
 }
 
-func (o *operator) Execute(ctx context.Context) error {
+func (o *Operator) Execute(ctx context.Context) error {
 	// Refresh topic assignment
 	assignedTopicPartitions, err := refreshTopicAssignment(o.consumer, o.config.PollInterval)
 	if err != nil {
@@ -184,7 +184,7 @@ func (o *operator) Execute(ctx context.Context) error {
 	return nil
 }
 
-func (o *operator) Close(ctx context.Context) {
+func (o *Operator) Close(ctx context.Context) {
 	log.Info("Closing connections...")
 	o.consumer.Close()
 	o.producer.Close()
