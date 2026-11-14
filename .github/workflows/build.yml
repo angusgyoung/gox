@@ -17,7 +17,8 @@ env:
   IMAGE_NAME: ${{ github.repository }}
 
 jobs:
-  test:
+  build:
+    name: 'Build and Test'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -36,8 +37,9 @@ jobs:
       - name: Integration test
         run: make integration
 
-  build:
-    needs: test
+  build-docker-image:
+    name: 'Publish Docker Image'
+    needs: build
     if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     permissions:
