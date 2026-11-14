@@ -2,8 +2,6 @@ package operator
 
 import (
 	"context"
-	"fmt"
-	"strings"
 	"time"
 
 	"github.com/angusgyoung/gox/pkg"
@@ -13,49 +11,40 @@ import (
 )
 
 const updateEventStatusSql = `
-	UPDATE outbox 
+	UPDATE outbox
 	SET status = $1, updated_timestamp = $2, instance_id = $3
 	WHERE id = ANY ($4)
 `
 
 const deleteEventSql = `
-	DELETE FROM outbox 
+	DELETE FROM outbox
 	WHERE id = ANY ($1)
 `
 
-const selectLatestPendingEventsSql = `
-	SELECT * FROM outbox 
+const selectPendingEventsSql = `
+	SELECT id, created_timestamp, updated_timestamp, status, topic, partition, key, message, instance_id, headers
+	FROM outbox
 	WHERE status = $1
-	AND (%s)
+	AND (topic, partition) IN (SELECT * FROM unnest($3::text[], $4::int4[]))
 	ORDER BY created_timestamp ASC
 	LIMIT $2
 `
 
-// Fetch any events that are in a PENDING state,
-// and are destined for one of the topics we have been assigned
 func fetchPendingEvents(ctx context.Context,
 	tx transaction,
 	assignedTopicPartitions []kafka.TopicPartition,
 	batchSize int) (rows, error) {
 
-	// Flatten our assigned partitions into a map of topic-> partitions[]
-	topicPartitions := make(map[string][]int, len(assignedTopicPartitions))
-	for _, topicPartition := range assignedTopicPartitions {
-		topicPartitions[*topicPartition.Topic] = append(topicPartitions[*topicPartition.Topic],
-			int(topicPartition.Partition))
+	topics := make([]string, len(assignedTopicPartitions))
+	partitions := make([]int32, len(assignedTopicPartitions))
+	for i, tp := range assignedTopicPartitions {
+		topics[i] = *tp.Topic
+		partitions[i] = tp.Partition
 	}
 
-	return tx.Query(
-		ctx,
-		buildFetchPendingEventsQuery(topicPartitions),
-		pkg.PENDING,
-		batchSize,
-	)
+	return tx.Query(ctx, selectPendingEventsSql, pkg.PENDING, batchSize, topics, partitions)
 }
 
-// Update events in the supplied list to a
-// SENT status, and set the updated timestamp to the
-// current time, and the instance id to our id.
 func updateEventStatus(ctx context.Context,
 	instanceId uuid.UUID,
 	tx transaction,
@@ -74,7 +63,6 @@ func updateEventStatus(ctx context.Context,
 	return nil
 }
 
-// Delete events in the supplied list
 func deleteEvents(ctx context.Context,
 	tx transaction,
 	eventIds []uuid.UUID) error {
@@ -87,26 +75,4 @@ func deleteEvents(ctx context.Context,
 	}
 
 	return nil
-}
-
-func buildFetchPendingEventsQuery(topicPartitions map[string][]int) string {
-	conditions := make([]string, len(topicPartitions))
-	i := 0
-	for topic, partitions := range topicPartitions {
-		partitionsStr := formatIntList(partitions)
-		conditions[i] = fmt.Sprintf("(topic = '%s' AND partition IN (%s))", topic, partitionsStr)
-		i++
-	}
-
-	return fmt.Sprintf(selectLatestPendingEventsSql, strings.Join(conditions, " OR "))
-}
-
-func formatIntList(integers []int) string {
-	strs := make([]string, len(integers))
-
-	for i, n := range integers {
-		strs[i] = fmt.Sprintf("%d", n)
-	}
-
-	return strings.Join(strs, ",")
 }

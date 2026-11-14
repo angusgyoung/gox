@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 
-	"github.com/angusgyoung/gox/pkg"
 	"github.com/confluentinc/confluent-kafka-go/v2/kafka"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -26,7 +25,6 @@ type Operator struct {
 }
 
 func NewOperator(ctx context.Context, config *Config) (*Operator, error) {
-	// Create an id for our instance
 	instanceId := uuid.New()
 
 	err := initialiseMeters(instanceId)
@@ -50,28 +48,25 @@ func NewOperator(ctx context.Context, config *Config) (*Operator, error) {
 	log.WithField("instanceId", instanceId).Info("Operator initialised")
 
 	return &Operator{
-		instanceId,
-		conn,
-		producer,
-		consumer,
-		config,
+		instanceId: instanceId,
+		conn:       conn,
+		producer:   producer,
+		consumer:   consumer,
+		config:     config,
 	}, nil
 }
 
 func (o *Operator) Execute(ctx context.Context) error {
-	// Refresh topic assignment
 	assignedTopicPartitions, err := refreshTopicAssignment(o.consumer, o.config.PollInterval)
 	if err != nil {
 		log.WithError(err).Warn("Failed to refresh topic assignment")
 		return err
 	}
 
-	// If we haven't been assigned any partitions we can return early
 	if len(assignedTopicPartitions) == 0 {
 		return nil
 	}
 
-	// Start our transaction
 	tx, err := o.conn.Begin(ctx)
 	if err != nil {
 		log.WithError(err).Warn("Failed to start transaction")
@@ -84,8 +79,6 @@ func (o *Operator) Execute(ctx context.Context) error {
 		}
 	}()
 
-	// Query for events where the status is 'PENDING', and the topic
-	// and partition has been assigned by the consumer group to this instance
 	rows, err := fetchPendingEvents(ctx, tx, assignedTopicPartitions, o.config.BatchSize)
 	if err != nil {
 		log.WithError(err).Warn("Failed to query for pending events")
@@ -93,34 +86,23 @@ func (o *Operator) Execute(ctx context.Context) error {
 	}
 	defer rows.Close()
 
-	// Create a slice to hold the id's of all the events we are going
-	// to publish
 	var eventIds []uuid.UUID
-	// Create a channel to produce events into
-	deliveryChan := make(chan kafka.Event, o.config.BatchSize)
+	deliveryChan := make(chan kafka.Event, 1)
 
-	var (
-		event   *pkg.Event
-		message *kafka.Message
-	)
 	for rows.Next() {
-		// Create an event from the row
-		event, err = mapRowToEvent(rows)
+		event, err := mapRowToEvent(rows)
 		if err != nil {
 			log.WithError(err).Warn("Failed to map row")
 			return err
 		}
 
-		// Create a message from the event
-		message, err = mapEventToMessage(*event)
+		message, err := mapEventToMessage(event)
 		if err != nil {
 			log.WithError(err).Warn("Failed to map event to message")
 			return err
 		}
 
-		// Publish our message to the channel
-		err = o.producer.Produce(message, deliveryChan)
-		if err != nil {
+		if err := o.producer.Produce(message, deliveryChan); err != nil {
 			log.WithError(err).Warn("Failed to publish event")
 			return err
 		}
@@ -135,49 +117,33 @@ func (o *Operator) Execute(ctx context.Context) error {
 				"partition": m.TopicPartition.Partition,
 			}).Warn("Delivery failed")
 			return m.TopicPartition.Error
-		} else {
-			// Increment our published message counter
-			publishedMessageCounter.Add(ctx, 1)
-
-			log.WithFields(log.Fields{
-				"key":       string(m.Key),
-				"topic":     *m.TopicPartition.Topic,
-				"partition": m.TopicPartition.Partition,
-			}).Debug("Published message")
 		}
 
-		// Add the event ID's that we have published to our slice
+		publishedMessageCounter.Add(ctx, 1)
+		log.WithFields(log.Fields{
+			"key":       string(m.Key),
+			"topic":     *m.TopicPartition.Topic,
+			"partition": m.TopicPartition.Partition,
+		}).Debug("Published message")
+
 		eventIds = append(eventIds, event.ID)
 	}
 
-	close(deliveryChan)
-
-	// If we didn't find any events to publish we can return early
 	if len(eventIds) == 0 {
 		return nil
 	}
 
-	// Depending on the completion mode, we need to update the status
-	// or delete the events which we have just published
 	if o.config.CompletionMode == UpdateCompletionMode {
-		// Update the state of the events we have published
-		err = updateEventStatus(ctx, o.instanceId, tx, eventIds)
-		if err != nil {
-			log.WithError(err).Warn("Failed to update event status")
+		if err := updateEventStatus(ctx, o.instanceId, tx, eventIds); err != nil {
 			return err
 		}
 	} else if o.config.CompletionMode == DeleteCompletionMode {
-		// Delete the events we have published
-		err = deleteEvents(ctx, tx, eventIds)
-		if err != nil {
-			log.WithError(err).Warn("Failed to delete published events")
+		if err := deleteEvents(ctx, tx, eventIds); err != nil {
 			return err
 		}
 	}
 
-	// Commit the transaction
-	err = tx.Commit(ctx)
-	if err != nil {
+	if err := tx.Commit(ctx); err != nil {
 		log.WithError(err).Warn("Failed to commit transaction")
 		return err
 	}
@@ -194,20 +160,15 @@ func (o *Operator) Close(ctx context.Context) {
 }
 
 func refreshTopicAssignment(consumer consumer, pollInterval int) ([]kafka.TopicPartition, error) {
-	// Poll the consumer. We should then receive any assignment
-	// updates which we should use to fetch events from the table
 	consumer.Poll(pollInterval)
 
-	// Get the partitions assigned to our consumer
 	assignedTopicPartitions, err := consumer.Assignment()
 	if err != nil {
 		log.WithError(err).Warn("Failed to get assigned topic partitions")
 		return nil, err
 	}
 
-	// Pause our consumer against the partitions it has been assigned
-	err = consumer.Pause(assignedTopicPartitions)
-	if err != nil {
+	if err := consumer.Pause(assignedTopicPartitions); err != nil {
 		log.WithError(err).Warn("Failed to pause consumer")
 		return nil, err
 	}

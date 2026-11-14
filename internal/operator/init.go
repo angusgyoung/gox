@@ -19,6 +19,10 @@ func initialiseMeters(instanceId uuid.UUID) error {
 	var err error
 	publishedMessageCounter, err = meter.Int64Counter("gox_published_messages",
 		metric.WithDescription("The number of messages published by this instance."))
+	if err != nil {
+		return err
+	}
+
 	rebalanceEventCounter, err = meter.Int64Counter("gox_rebalance_events",
 		metric.WithDescription("The number of rebalance events this instance has processed."))
 
@@ -42,7 +46,7 @@ func initialiseDatasource(ctx context.Context, databaseUrl string) (conn, error)
 }
 
 func initialiseKafka(instanceId uuid.UUID, brokerUrls string, topics []string) (producer, consumer, error) {
-	producer, err := kafka.NewProducer(&kafka.ConfigMap{
+	p, err := kafka.NewProducer(&kafka.ConfigMap{
 		"bootstrap.servers": brokerUrls,
 		"client.id":         instanceId,
 		"acks":              "all",
@@ -52,23 +56,25 @@ func initialiseKafka(instanceId uuid.UUID, brokerUrls string, topics []string) (
 		return nil, nil, err
 	}
 
-	consumer, err := kafka.NewConsumer(&kafka.ConfigMap{
+	c, err := kafka.NewConsumer(&kafka.ConfigMap{
 		"bootstrap.servers": brokerUrls,
 		"client.id":         instanceId,
 		"group.id":          "gox-partitioning-group",
 	})
 	if err != nil {
+		p.Close()
 		log.WithError(err).Warn("Failed to create consumer")
 		return nil, nil, err
 	}
 
-	err = consumer.SubscribeTopics(topics, rebalanceCallback)
-	if err != nil {
+	if err = c.SubscribeTopics(topics, rebalanceCallback); err != nil {
+		p.Close()
+		c.Close()
 		log.WithError(err).Warn("Failed to subscribe to topics")
 		return nil, nil, err
 	}
 
-	return producer, consumer, nil
+	return p, c, nil
 }
 
 func rebalanceCallback(c *kafka.Consumer, event kafka.Event) error {

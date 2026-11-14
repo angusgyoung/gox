@@ -83,7 +83,7 @@ func TestConstructMessage(t *testing.T) {
 		CreatedTimestamp: time.Now(),
 	}
 
-	message, err := mapEventToMessage(*event)
+	message, err := mapEventToMessage(event)
 
 	assert.NotNil(t, message)
 	assert.Nil(t, err)
@@ -107,7 +107,7 @@ func TestConstructMessageWithHeader(t *testing.T) {
 		CreatedTimestamp: time.Now(),
 	}
 
-	message, err := mapEventToMessage(*event)
+	message, err := mapEventToMessage(event)
 
 	assert.NotNil(t, message)
 	assert.Nil(t, err)
