@@ -1,7 +1,7 @@
 version: '3.8'
 services:
   devcontainer:
-    image: mcr.microsoft.com/devcontainers/go:1.24-bullseye
+    image: mcr.microsoft.com/devcontainers/go:1.27-bookworm
     depends_on:
       - broker
     env_file: devcontainer.env

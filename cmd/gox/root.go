@@ -2,7 +2,6 @@ package gox
 
 import (
 	"context"
-	"os"
 	"os/signal"
 	"strings"
 	"syscall"
@@ -81,7 +80,7 @@ var (
 				log.Debug("Telemetry is disabled")
 			}
 
-			operator, err := operator.NewOperator(ctx, &operator.Config{
+			op, err := operator.NewOperator(ctx, &operator.Config{
 				PollInterval:   viper.GetInt("pollInterval"),
 				BatchSize:      viper.GetInt("batchSize"),
 				DatabaseUrl:    viper.GetString("dbUrl"),
@@ -93,35 +92,19 @@ var (
 				log.WithError(err).Fatal("Failed to create operator")
 			}
 
-			// Channel to receive os signals
-			sigChan := make(chan os.Signal, 1)
-			// Channel to wait for graceful shutdown
-			shutdownChan := make(chan struct{})
-			signal.Notify(sigChan, syscall.SIGTERM, syscall.SIGINT)
+			ctx, stop := signal.NotifyContext(ctx, syscall.SIGTERM, syscall.SIGINT)
+			defer stop()
 
-			go func() {
-				defer close(shutdownChan)
-
-				log.Info("Polling for events...")
-				for {
-					select {
-					default:
-						err := operator.Execute(ctx)
-						if err != nil {
-							log.WithError(err).Error("Operator failed")
-						}
-					case <-sigChan:
-						log.Info("Stopping gox..")
-						operator.Close(ctx)
-						telemetry.Close()
-						return
-					}
+			log.Info("Polling for events...")
+			for ctx.Err() == nil {
+				if err := op.Execute(ctx); err != nil && ctx.Err() == nil {
+					log.WithError(err).Error("Operator failed")
 				}
-			}()
+			}
 
-			<-sigChan
-			close(sigChan)
-			<-shutdownChan
+			log.Info("Stopping gox..")
+			op.Close(context.Background())
+			telemetry.Close()
 		},
 	}
 )

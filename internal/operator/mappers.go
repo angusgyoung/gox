@@ -25,7 +25,7 @@ func mapRowToEvent(row scannableRow) (*pkg.Event, error) {
 	return &event, err
 }
 
-func mapEventToMessage(event pkg.Event) (*kafka.Message, error) {
+func mapEventToMessage(event *pkg.Event) (*kafka.Message, error) {
 	headers, err := mapHeaders(event.Headers)
 	if err != nil {
 		log.WithError(err).Warn("Failed to map headers")
